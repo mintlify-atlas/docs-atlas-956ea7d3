@@ -1,5 +1,5 @@
 ---
-title: "FoundationForecast Class API Reference"
+title: "FoundationForecast Class — Multi-Model Forecasting API"
 sidebarTitle: "FoundationForecast"
 description: "Complete API reference for the FoundationForecast class — constructor, forecast(), cross_validation(), detect_anomalies(), and plot() methods."
 ---
@@ -26,7 +26,7 @@ Instantiate a multi-model forecaster. Every method on `FoundationForecast` (`for
 
 <ParamField path="models" type="list[Forecaster]" required>
   List of forecaster instances to run. Each must have a unique `alias` attribute.
-  Supported built-ins include `Chronos`, `Toto`, `TimesFM`, `TimeGPT`, `Moirai`, `TiRex`, `T0`, `FlowState`, `PatchTSTFM`, `Sundial`, and `TabPFN`.
+  Supported built-ins include `Chronos`, `Toto`, `TimesFM`, `TimeGPT`, `Moirai`, `Tafsut`, `TiRex`, `T0`, `FlowState`, `PatchTSTFM`, `Sundial`, and `TabPFN`.
 </ParamField>
 
 <ParamField path="fallback_model" type="Forecaster | None" default="None">
@@ -80,13 +80,18 @@ Generate point forecasts (and optionally prediction intervals or quantiles) for 
   Produces `{alias}-q-{pct}` columns. Mutually exclusive with `level`.
 </ParamField>
 
+<ParamField path="panel" type="PanelData | None" default="None">
+  Pre-computed panel metadata (unique IDs, last timestamps, and series arrays) returned by `process_panel_from_df()`.
+  When `None`, panel data is derived automatically from `df`. Pass a cached `PanelData` object to avoid recomputing it on repeated calls with the same dataset.
+</ParamField>
+
 <ParamField path="X_df" type="pd.DataFrame | None" default="None">
   Known-future exogenous features for the next `h` steps. Required columns: `unique_id`, `ds`, plus any exog columns — do **not** include `y`.
   Only consumed by models whose `exog_strategy` is not `False` and that support native exog for the loaded checkpoint.
 </ParamField>
 
 <ParamField path="futr_df" type="pd.DataFrame | None" default="None">
-  Keyword-only alias for `X_df`. If both are provided, `futr_df` takes precedence.
+  Keyword-only alias for `X_df`. Passing both `X_df` and `futr_df` raises a `ValueError` unless they reference the same object.
 </ParamField>
 
 <ParamField path="futr_exog_list" type="list[str] | None" default="None">

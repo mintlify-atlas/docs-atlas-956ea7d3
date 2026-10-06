@@ -1,5 +1,5 @@
 ---
-title: "Run Multi-Model Time Series Forecasts"
+title: "FoundationForecast: Multi-Model Time Series Forecasting"
 sidebarTitle: "Forecasting"
 description: "Learn how to call forecast() on FoundationForecast with multiple models, configure horizon and frequency, and interpret the output DataFrame."
 ---
@@ -23,7 +23,7 @@ Every method in FoundationForecast expects a pandas DataFrame with exactly three
 ## The `forecast()` method
 
 ```python
-ff.forecast(df, h, freq=None, level=None, quantiles=None, X_df=None)
+ff.forecast(df, h, freq=None, level=None, quantiles=None, X_df=None, *, futr_df=None, futr_exog_list=None)
 ```
 
 <ParamField path="df" type="pd.DataFrame" required>
@@ -48,6 +48,14 @@ ff.forecast(df, h, freq=None, level=None, quantiles=None, X_df=None)
 
 <ParamField path="X_df" type="pd.DataFrame">
   Known-future exogenous variables for the forecast horizon. Must contain `unique_id`, `ds`, and exog columns (no `y`). Only supported by select checkpoints — see the [Exogenous Variables](/guides/exogenous-variables) guide.
+</ParamField>
+
+<ParamField path="futr_df" type="pd.DataFrame">
+  Keyword-only alias for `X_df`. Provides known-future exogenous variables for the forecast horizon. `X_df` and `futr_df` are interchangeable; pass at most one.
+</ParamField>
+
+<ParamField path="futr_exog_list" type="list[str]">
+  Keyword-only. Explicit list of exogenous column names to use from `X_df` (or `futr_df`). If omitted, all non-identifier columns in `X_df` (excluding `unique_id` and `ds`) are treated as exogenous.
 </ParamField>
 
 ## Frequency inference

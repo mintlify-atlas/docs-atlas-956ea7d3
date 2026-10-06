@@ -1,7 +1,7 @@
 ---
-title: "Toto Model API Reference"
+title: "Toto — Datadog Time Series Forecasting API Reference"
 sidebarTitle: "Toto"
-description: "API reference for the Toto class. Datadog's open foundation model for time series forecasting, available in sizes from 4M to 2.5B parameters."
+description: "API reference for the Toto class. Datadog's open foundation model for time series, supporting Toto 1.0 and 2.0 checkpoints from 4M to 2.5B parameters."
 ---
 
 Toto is Datadog's open foundation model family for multivariate time series forecasting, developed with observability workloads in mind but broadly applicable across domains. The family spans two generations: **Toto 1.0**, a sample-based probabilistic model (151M parameters), and **Toto 2.0**, a quantile-knot-based architecture available in five sizes from 4M to 2.5B parameters. FoundationForecast automatically detects which generation a given checkpoint belongs to by inspecting its `config.json` and routes inference to the correct backend—you do not need to choose between them manually.

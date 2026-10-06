@@ -1,7 +1,7 @@
 ---
-title: "T0 Model API Reference"
+title: "T0 API Reference — The Forecasting Company Foundation"
 sidebarTitle: "T0"
-description: "API reference for the T0 class. The Forecasting Company's foundation model with native exogenous variable support on t0-alpha and t0-beta checkpoints."
+description: "API reference for the T0 class. Decoder-style foundation model from The Forecasting Company with native exogenous variable support."
 ---
 
 **T0** is an open-weights time series foundation model from [The Forecasting Company](https://theforecastingcompany.com/). It is a decoder-style patch transformer that alternates time and covariate attention layers, producing probabilistic multi-horizon quantile forecasts. T0 decodes up to 1,024 timesteps in a single forward pass and falls back on autoregressive rollout for longer horizons. Both **t0-alpha** (~102M parameters) and **t0-beta** (~256M parameters) natively handle numerical covariates — both historical (known over the past) and future (known over the forecast horizon) — making T0 one of the few foundation models in FoundationForecast with first-class known-future exogenous variable support via `X_df`.

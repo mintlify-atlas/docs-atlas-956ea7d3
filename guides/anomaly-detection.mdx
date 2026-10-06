@@ -1,7 +1,7 @@
 ---
 title: "Detect Anomalies in Time Series with Foundation Models"
 sidebarTitle: "Anomaly Detection"
-description: "Use detect_anomalies() to flag outliers in time series data using cross-validation residuals and a configurable confidence level."
+description: "Use detect_anomalies() to flag outliers in time series using cross-validation residuals, per-series z-scores, and a configurable confidence level."
 ---
 
 FoundationForecast's `detect_anomalies()` method uses foundation models to identify unusual observations in your time series — no hand-crafted rules or domain-specific thresholds required. Under the hood it runs rolling-window cross-validation, computes per-series residuals, and flags any point whose absolute z-score exceeds the critical value derived from your chosen confidence level.

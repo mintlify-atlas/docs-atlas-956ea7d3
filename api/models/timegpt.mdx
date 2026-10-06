@@ -1,7 +1,7 @@
 ---
-title: "TimeGPT Model API Reference"
+title: "TimeGPT — Nixtla Time Series Forecasting API Reference"
 sidebarTitle: "TimeGPT"
-description: "API reference for the TimeGPT class. Nixtla's hosted API model with native exogenous variable support and finetuning via TimeGPTFinetuningConfig."
+description: "API reference for TimeGPT and TimeGPTFinetuningConfig. Nixtla's hosted REST API model with native exogenous support and optional finetuning config."
 ---
 
 TimeGPT is Nixtla's production-grade hosted foundation model for time series forecasting and anomaly detection. Unlike local-weight models, TimeGPT runs entirely on Nixtla's infrastructure—you send your data via the REST API and receive forecasts in return. It is built on a large encoder-decoder transformer trained on more than 100 billion data points spanning diverse domains and frequencies. TimeGPT natively supports exogenous (covariate) variables and on-the-fly finetuning on any model variant, making it well-suited for scenarios where training data context and future-known features are available.

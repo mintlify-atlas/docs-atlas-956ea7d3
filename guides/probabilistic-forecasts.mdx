@@ -1,7 +1,7 @@
 ---
-title: "Probabilistic Forecasting with Prediction Intervals and Quantiles"
+title: "Probabilistic Forecasting with Intervals and Quantiles"
 sidebarTitle: "Probabilistic Forecasts"
-description: "Request prediction intervals via the level parameter or direct quantile forecasts via quantiles. Covers output column naming, interpolation, and edge clamping."
+description: "Use level for prediction intervals or quantiles for direct forecasts. Covers output column naming, linear interpolation, and edge-clamping rules."
 ---
 
 Foundation models in FoundationForecast can produce more than a single point forecast — you can request full probability distributions expressed as prediction intervals or explicit quantiles. This guide covers the two probabilistic APIs (`level` and `quantiles`), explains how output columns are named, and describes the interpolation and edge-clamping behaviour that applies to fixed-knot models.
@@ -94,16 +94,16 @@ where `pct` is the minimal decimal text for `100 × q` — trailing zeros are dr
 | `0.1` | `10` | `Chronos-q-10` |
 | `0.15` | `15` | `Chronos-q-15` |
 | `0.151` | `15.1` | `Chronos-q-15.1` |
+| `0.5` | `50` | `Chronos-q-50` |
 | `0.9` | `90` | `Chronos-q-90` |
-| `0.5` | — | `Chronos` (point forecast column) |
 
 <Note>
-  The median (`q=0.5`) is not returned as a separate `-q-50` column — it is the point forecast and appears in the main `{model}` column.
+  The point forecast is always returned in the `{model}` column regardless of which API you use. When `quantiles=[0.1, 0.5, 0.9]` is passed, a separate `{model}-q-50` column is also produced alongside the point forecast column.
 </Note>
 
 ```python
 print(fcst_df.columns.tolist())
-# ['unique_id', 'ds', 'Chronos', 'Chronos-q-10', 'Chronos-q-90']
+# ['unique_id', 'ds', 'Chronos', 'Chronos-q-10', 'Chronos-q-50', 'Chronos-q-90']
 ```
 
 ---

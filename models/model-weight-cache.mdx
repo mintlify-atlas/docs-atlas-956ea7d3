@@ -1,7 +1,7 @@
 ---
-title: "Manage Model Weight Caching and GPU Memory"
+title: "Model Weight Cache: Manage GPU Memory in FoundationForecast"
 sidebarTitle: "Weight Cache"
-description: "Configure the process-wide LRU model weight cache, set per-model reuse behavior, and control GPU memory in multi-model ensembles."
+description: "Configure the process-wide LRU model weight cache, set per-model reuse behavior, and control GPU memory usage in multi-model ensembles."
 ---
 
 Foundation models load large checkpoint files into GPU or CPU memory. By default, FoundationForecast **reuses loaded weights** across repeated `forecast()` calls instead of loading and unloading on every request. This is especially useful in long-lived workers — for example Modal GPU containers — where the same model serves many requests. When the cache reaches its limit, the least-recently-used model is automatically evicted and its memory is released.

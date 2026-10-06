@@ -1,7 +1,7 @@
 ---
-title: "TabPFN Model API Reference"
+title: "TabPFN API Reference — Prior Labs Time Series Model"
 sidebarTitle: "TabPFN"
-description: "API reference for the TabPFN class. Prior Labs' tabular prior-fitted network adapted for time series, available in local and API modes."
+description: "API reference for TabPFN class. Prior Labs tabular prior-fitted network for time series forecasting, in LOCAL and CLIENT inference modes."
 ---
 
 **TabPFN** is Prior Labs' tabular prior-fitted network adapted for zero-shot time series forecasting. Rather than treating sequences as temporal signals directly, it frames univariate forecasting as a tabular regression problem, enriching each observation with calendar features, seasonal patterns, and running indices before passing them through the network. TabPFN supports both point and probabilistic forecasts and is available in two inference modes: **LOCAL** (loads weights onto a local GPU) and **CLIENT** (routes requests through the Prior Labs cloud API). This class supports both **TabPFN-2** (default) and **TabPFN-3** checkpoints; TabPFN-3 is LOCAL-only and accepts a longer context window for heavy long-history tasks.

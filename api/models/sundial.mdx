@@ -1,7 +1,7 @@
 ---
-title: "Sundial Model API Reference"
+title: "Sundial API Reference — THUML Time Series Foundation"
 sidebarTitle: "Sundial"
-description: "API reference for the Sundial class. THUML's continuous-time foundation model for time series with probabilistic forecasting support."
+description: "API reference for Sundial class. THUML generative foundation model using TimeFlow Loss for probabilistic zero-shot time series forecasting."
 ---
 
 **Sundial** is a family of generative time series foundation models developed by THUML, pre-trained on **TimeBench** — a dataset of 10¹² time points. It uses the **TimeFlow Loss** to predict next-patch distributions, enabling Transformers to be trained without discrete tokenisation and to make non-deterministic, sample-based predictions. Because Sundial draws multiple samples per forecast step, it naturally supports both point forecasts (via the sample median) and full probabilistic outputs (via empirical quantiles), making it a strong choice for long-horizon probabilistic forecasting at zero-shot.

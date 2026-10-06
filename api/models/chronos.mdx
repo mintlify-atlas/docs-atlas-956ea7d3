@@ -1,7 +1,7 @@
 ---
-title: "Chronos Model API Reference"
+title: "Chronos — Amazon Time Series Forecasting API Reference"
 sidebarTitle: "Chronos"
-description: "API reference for the Chronos and ChronosFinetuningConfig classes. Supports 12 checkpoints from Amazon, including Chronos-2 with native exogenous variable support."
+description: "API reference for Chronos and ChronosFinetuningConfig. Covers 12 Amazon checkpoints including Chronos-2, which adds native exogenous variable support."
 ---
 
 Chronos is Amazon's family of pre-trained probabilistic time series forecasting models. Built on a language model backbone (T5), Chronos tokenizes real-valued time series into discrete bins and trains a seq2seq transformer to predict future tokens. The family spans eight orders of magnitude in size—from the 8M-parameter `chronos-t5-tiny` up to the 710M `chronos-t5-large`—plus the faster Chronos-Bolt distilled variants and the newer Chronos-2 series, which adds native support for exogenous (covariate) variables and on-the-fly finetuning.

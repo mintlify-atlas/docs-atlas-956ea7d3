@@ -1,7 +1,7 @@
 ---
-title: "Tafsut Model API Reference"
+title: "Tafsut API Reference — MIT-Licensed Univariate Model"
 sidebarTitle: "Tafsut"
-description: "API reference for the Tafsut class. MIT-licensed foundation model for univariate time series forecasting with probabilistic output."
+description: "API reference for the Tafsut class. MIT-licensed zero-shot foundation model with nine fixed quantile outputs for univariate time series."
 ---
 
 **Tafsut** is a zero-shot probabilistic univariate time series foundation model released under the **MIT license**. It uses a patch-based transformer encoder to produce nine fixed forecast quantiles (0.1 through 0.9) per step from up to 32,768 historical observations, making it one of the highest-context-window models available in FoundationForecast. Tafsut handles missing values natively via NaN in the input context and is strictly univariate — it does not use cross-series structure or external covariates.

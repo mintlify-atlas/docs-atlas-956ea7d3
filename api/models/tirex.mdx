@@ -1,7 +1,7 @@
 ---
-title: "TiRex Model API Reference"
+title: "TiRex — NX-AI xLSTM Time Series Model API Reference"
 sidebarTitle: "TiRex"
-description: "API reference for the TiRex class. NX-AI's foundation model for time series. TiRex-2 checkpoints support native exogenous variables and carry Apache-2.0 license."
+description: "API reference for the TiRex class. Covers TiRex 1.0 and TiRex-2 checkpoints. TiRex-2 adds native exogenous support and carries the Apache-2.0 license."
 ---
 
 TiRex is NX-AI's family of zero-shot time series forecasting models, built on the xLSTM sequence architecture. It supports both point and quantile predictions and is designed for efficient inference across diverse frequencies and domains. FoundationForecast covers two generations: **TiRex 1.0** (`NX-AI/TiRex`), which predicts by generating fixed native quantile knots (0.1–0.9) via the `tirex` library, and **TiRex 2.0** (`NX-AI/TiRex-2`), which adds native exogenous variable support, MPS device compatibility, and an updated xLSTM-based architecture via the `tirex2` library. The correct backend is selected automatically based on `repo_id`.
