@@ -1,0 +1,150 @@
+---
+title: "TiRex Model API Reference"
+sidebarTitle: "TiRex"
+description: "API reference for the TiRex class. NX-AI's foundation model for time series. TiRex-2 checkpoints support native exogenous variables and carry Apache-2.0 license."
+---
+
+TiRex is NX-AI's family of zero-shot time series forecasting models, built on the xLSTM sequence architecture. It supports both point and quantile predictions and is designed for efficient inference across diverse frequencies and domains. FoundationForecast covers two generations: **TiRex 1.0** (`NX-AI/TiRex`), which predicts by generating fixed native quantile knots (0.1–0.9) via the `tirex` library, and **TiRex 2.0** (`NX-AI/TiRex-2`), which adds native exogenous variable support, MPS device compatibility, and an updated xLSTM-based architecture via the `tirex2` library. The correct backend is selected automatically based on `repo_id`.
+
+<Warning>
+  **TiRex requires Python 3.11 or later.** Attempting to import on Python 3.10 or below raises an `ImportError`. Check your environment before installing.
+</Warning>
+
+## Import
+
+```python
+from foundationforecast.models import TiRex
+```
+
+---
+
+## `TiRex`
+
+```python
+TiRex(
+    repo_id="NX-AI/TiRex",
+    batch_size=16,
+    alias="TiRex",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+The `TiRex` class transparently supports TiRex 1.0 and TiRex 2.0 checkpoints. Generation detection is based on the last path component of `repo_id`: a name of exactly `"TiRex-2"` or any name starting with `"TiRex-2-"` routes to the TiRex 2.0 backend; everything else uses TiRex 1.0.
+
+- **TiRex 1.0** loads on CUDA when available, otherwise CPU. On CPU, the `TIREX_NO_CUDA=1` environment variable is set automatically to disable CUDA-dependent kernels.
+- **TiRex 2.0** loads on CUDA when available, then MPS (Apple Silicon), then CPU.
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default="NX-AI/TiRex">
+  HuggingFace Hub model ID or local path to load the TiRex model from. Use `"NX-AI/TiRex"` for the TiRex 1.0 checkpoint or `"NX-AI/TiRex-2"` for TiRex 2.0. Custom fine-tuned `TiRex-2-*` variant names are also supported.
+
+  See [Available checkpoints](#available-checkpoints) below.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="16">
+  Batch size for inference. Defaults to `16`. Adjust based on available memory and model size.
+</ParamField>
+
+<ParamField path="alias" type="str" default="TiRex">
+  Name used for this model in output DataFrame columns and logs. Change this when running multiple models together to keep forecast columns distinct.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True`, loaded checkpoint weights are kept in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type='"auto" | False' default='"auto"'>
+  Controls how exogenous variables in `X_df` are handled. Under `"auto"`, native exog is used when `repo_id` points to a TiRex 2.0 checkpoint; TiRex 1.0 checkpoints ignore `X_df`. Set to `False` to disable exog handling entirely in mixed `FoundationForecast` runs.
+</ParamField>
+
+### Exogenous variable support
+
+<Note>
+  Native `X_df` support is **only available on TiRex 2.0 checkpoints** — that is, `repo_id` values whose last path component is exactly `"TiRex-2"` or starts with `"TiRex-2-"` (e.g. `NX-AI/TiRex-2`, `NX-AI/TiRex-2-gifteval-zs`). TiRex 1.0 (`NX-AI/TiRex`) does not accept `X_df` and will ignore it under the default `exog_strategy="auto"`.
+</Note>
+
+### Available checkpoints
+
+| Model ID | Generation | Native Exog | License |
+|---|---|---|---|
+| `NX-AI/TiRex` | TiRex 1.0 | No | NXAI Community License |
+| `NX-AI/TiRex-2` | TiRex 2.0 | Yes | Apache-2.0 |
+
+<Warning>
+  **TiRex 1.0** (`NX-AI/TiRex`) uses the [NXAI Community License](https://huggingface.co/NX-AI/TiRex/blob/main/LICENSE), which restricts commercial use for large enterprises. **TiRex 2.0** (`NX-AI/TiRex-2`) is Apache-2.0 and is generally safe for commercial production. Verify the license of any checkpoint before deploying.
+</Warning>
+
+### Quantile output note
+
+Both TiRex 1.0 and TiRex 2.0 predict a fixed set of native quantile knots: `[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]`. The median (0.5) is used as the point forecast. When you request `level` or `quantiles` outside this range, FoundationForecast linearly interpolates across the knots (with edge clamping for extreme quantiles).
+
+### Requirements
+
+- Python **3.11+**
+
+### Basic usage — TiRex 1.0
+
+```python
+import pandas as pd
+from foundationforecast.models import TiRex
+
+model = TiRex(
+    repo_id="NX-AI/TiRex",
+    batch_size=32,
+)
+
+df = pd.read_csv("timeseries.csv", parse_dates=["ds"])
+fcst_df = model.forecast(df=df, h=24, level=[80, 95])
+print(fcst_df)
+```
+
+### Basic usage — TiRex 2.0 with exogenous variables
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import TiRex
+
+ff = FoundationForecast(
+    models=[
+        TiRex(
+            repo_id="NX-AI/TiRex-2",
+            batch_size=16,
+            alias="TiRex-2",
+        )
+    ]
+)
+
+fcst_df = ff.forecast(df=df, h=24, X_df=X_df, level=[90])
+```
+
+Running TiRex-1 and TiRex-2 side by side:
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import TiRex
+
+ff = FoundationForecast(
+    models=[
+        TiRex(repo_id="NX-AI/TiRex", alias="TiRex-1", exog_strategy=False),
+        TiRex(repo_id="NX-AI/TiRex-2", alias="TiRex-2"),
+    ]
+)
+
+# TiRex-2 will consume X_df natively; TiRex-1 will skip it
+fcst_df = ff.forecast(df=df, h=24, X_df=X_df)
+print(fcst_df[["unique_id", "ds", "TiRex-1", "TiRex-2"]])
+```
+
+---
+
+## License & references
+
+TiRex 1.0 weights are released under the **NXAI Community License** (commercial restrictions for large enterprises). TiRex 2.0 weights are released under **Apache-2.0**. FoundationForecast itself is Apache-2.0.
+
+- **Paper (TiRex 1.0):** [TiRex: Zero-shot Time Series Forecasting with xLSTM](https://arxiv.org/abs/2505.23719)
+- **Paper (TiRex 2.0):** [TiRex-2: Generalizing TiRex to Multivariate Data and Streaming](https://arxiv.org/abs/2607.01204)
+- **GitHub:** [NX-AI/tirex](https://github.com/NX-AI/tirex), [NX-AI/tirex-2](https://github.com/NX-AI/tirex-2)
+- **HuggingFace:** [NX-AI models](https://huggingface.co/NX-AI)

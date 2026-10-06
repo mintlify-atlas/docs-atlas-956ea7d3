@@ -1,0 +1,120 @@
+---
+title: "TabPFN Model API Reference"
+sidebarTitle: "TabPFN"
+description: "API reference for the TabPFN class. Prior Labs' tabular prior-fitted network adapted for time series, available in local and API modes."
+---
+
+**TabPFN** is Prior Labs' tabular prior-fitted network adapted for zero-shot time series forecasting. Rather than treating sequences as temporal signals directly, it frames univariate forecasting as a tabular regression problem, enriching each observation with calendar features, seasonal patterns, and running indices before passing them through the network. TabPFN supports both point and probabilistic forecasts and is available in two inference modes: **LOCAL** (loads weights onto a local GPU) and **CLIENT** (routes requests through the Prior Labs cloud API). This class supports both **TabPFN-2** (default) and **TabPFN-3** checkpoints; TabPFN-3 is LOCAL-only and accepts a longer context window for heavy long-history tasks.
+
+```python
+from foundationforecast.models import TabPFN
+```
+
+<Warning>
+  TabPFN-2.6+ and TabPFN-3 weights are released under the **TabPFN Non-Commercial (NC) license**. Production or revenue-generating use requires a [Prior Labs commercial license or API](https://docs.priorlabs.ai/models). This model is **not available for Python 3.13+**; Python 3.10–3.12 is required.
+</Warning>
+
+<Note>
+  **First LOCAL use:** you must accept the model terms at [ux.priorlabs.ai](https://ux.priorlabs.ai) and set the `TABPFN_TOKEN` environment variable before loading weights locally. CLIENT mode uses `tabpfn-client` and requires a Prior Labs API token passed via `api_key` or the client's own token store.
+</Note>
+
+## Constructor
+
+```python
+TabPFN(
+    features=None,
+    context_length=4096,
+    mode=None,
+    api_key=None,
+    alias="TabPFN",
+    reuse_loaded_model=True,
+    model_path="tabpfn-v2-regressor-2noar4o2.ckpt",
+    exog_strategy="auto",
+)
+```
+
+### Parameters
+
+<ParamField path="model_path" type="str" default="tabpfn-v2-regressor-2noar4o2.ckpt">
+  TabPFN checkpoint filename. Defaults to TabPFN-2 (`tabpfn-v2-regressor-2noar4o2.ckpt`). Pass `tabpfn-v3-regressor-v3_20260506_timeseries.ckpt` for TabPFN-3 (TabPFN-TS-3). TabPFN-3 is **LOCAL-only**; the cloud client does not ship v3 yet.
+
+  | Checkpoint | Mode | Notes |
+  |---|---|---|
+  | `tabpfn-v2-regressor-2noar4o2.ckpt` | LOCAL or CLIENT | Default (TabPFN-2) |
+  | `tabpfn-v3-regressor-v3_20260506_timeseries.ckpt` | LOCAL only | TabPFN-3; longer context |
+</ParamField>
+
+<ParamField path="features" type="list[FeatureGenerator] | None" default="None">
+  List of [TabPFN-TS feature generators](https://github.com/PriorLabs/tabpfn-time-series/tree/main/tabpfn_time_series/features) to use for feature engineering. When `None`, defaults to `[RunningIndexFeature(), CalendarFeature(), AutoSeasonalFeature()]`.
+</ParamField>
+
+<ParamField path="context_length" type="int" default="4096">
+  Maximum context length (input window size) for the model. Series longer than this are sliced to the most recent `context_length` observations. TabPFN-3 upstream default is 32,768; increase this for long-history tasks when running TabPFN-3 locally.
+</ParamField>
+
+<ParamField path="mode" type="TabPFNMode | None" default="None">
+  Inference mode for TabPFN. When `None`, the mode is selected automatically: **LOCAL** if a CUDA GPU is available, otherwise **CLIENT** (cloud inference via `tabpfn-client`). Pass `TabPFNMode.LOCAL` or `TabPFNMode.CLIENT` explicitly to override this behaviour. Passing `model_path` for TabPFN-3 with any mode other than `TabPFNMode.LOCAL` raises a `ValueError`.
+</ParamField>
+
+<ParamField path="api_key" type="str | None" default="None">
+  API key for `tabpfn-client` cloud inference. Required if using CLIENT mode and the key is not already stored by the `tabpfn-client` library. Ignored in LOCAL mode.
+</ParamField>
+
+<ParamField path="alias" type="str" default="TabPFN">
+  Name used for this model in output DataFrames and log messages.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True` (default), checkpoint weights are cached in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call, which reduces peak memory at the cost of slower repeated inference.
+</ParamField>
+
+<ParamField path="exog_strategy" type="ExogStrategyConfig" default='"auto"'>
+  Controls how exogenous (covariate) variables are handled. TabPFN has no native exogenous support. In mixed `FoundationForecast` runs that include models with native exog, set `exog_strategy=False` to explicitly disable covariate injection for this model.
+</ParamField>
+
+## Available checkpoints
+
+| Checkpoint | Variant | Mode |
+|---|---|---|
+| `tabpfn-v2-regressor-2noar4o2.ckpt` | TabPFN-2 (default) | LOCAL or CLIENT |
+| `tabpfn-v3-regressor-v3_20260506_timeseries.ckpt` | TabPFN-3 | LOCAL only |
+
+## Usage example
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import TabPFN
+
+df = pd.read_csv("my_timeseries.csv", parse_dates=["ds"])
+
+# TabPFN-2 in CLIENT mode (default when no GPU is available)
+model = TabPFN(alias="TabPFN-2-client")
+
+# TabPFN-2 in LOCAL mode (recommended if a CUDA GPU is present)
+from tabpfn_time_series import TabPFNMode
+model_local = TabPFN(mode=TabPFNMode.LOCAL, alias="TabPFN-2-local")
+
+# TabPFN-3 (LOCAL-only)
+model_v3 = TabPFN(
+    model_path="tabpfn-v3-regressor-v3_20260506_timeseries.ckpt",
+    mode=TabPFNMode.LOCAL,
+    context_length=32768,
+    alias="TabPFN-3",
+)
+
+ff = FoundationForecast(models=[model])
+fcst_df = ff.forecast(df, h=24, level=[90])
+```
+
+<Tip>
+  For point forecasts over many series, CLIENT mode avoids the need for a local GPU and is the simplest way to get started. Switch to LOCAL mode with a CUDA GPU for lowest-latency batch inference. See the [Prior Labs docs](https://docs.priorlabs.ai/models) for API key setup.
+</Tip>
+
+## Notes
+
+- **Python compatibility:** 3.10–3.12 only. The `tabpfn` package raises an `ImportError` on Python 3.13+.
+- **Exogenous variables:** No native exog support. Use `exog_strategy=False` in mixed `FoundationForecast` runs to prevent the library from attempting to pass covariates to this model.
+- **Paper:** [From Tables to Time: How TabPFN-v2 Outperforms Specialized Time Series Forecasting Models](https://arxiv.org/abs/2501.02945)
+- **TabPFN-3 report:** [priorlabs.ai/reports/tabpfn-3](https://priorlabs.ai/reports/tabpfn-3)
+- **GitHub:** [PriorLabs/tabpfn-time-series](https://github.com/PriorLabs/tabpfn-time-series)

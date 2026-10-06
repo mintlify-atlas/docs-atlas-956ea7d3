@@ -1,0 +1,108 @@
+---
+title: "FlowState Model API Reference"
+sidebarTitle: "FlowState"
+description: "API reference for the FlowState class. IBM Research's normalizing flow foundation model for probabilistic time series forecasting."
+---
+
+**FlowState** is IBM Research's first time-scale adjustable Time Series Foundation Model (TSFM), open-sourced as part of the Granite time series family. It combines a **State Space Model (SSM) Encoder** with a **Functional Basis Decoder (FBD)** to operate in a timescale-invariant coefficient space, enabling seamless adaptation to any sampling rate without retraining. FlowState makes continuous, probabilistic forecasts across all possible temporal resolutions and is pre-trained to generalise broadly across domains and frequencies.
+
+```python
+from foundationforecast.models import FlowState
+```
+
+<Note>
+  FlowState is released under the **Apache-2.0** license. Both the IBM Research and IBM Granite checkpoints are commercially usable. Python 3.11–3.13 is required.
+</Note>
+
+## Constructor
+
+```python
+FlowState(
+    repo_id="ibm-research/flowstate",
+    scale_factor=None,
+    context_length=2048,
+    batch_size=1024,
+    alias="FlowState",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default='"ibm-research/flowstate"'>
+  The Hugging Face Hub model ID or local path to load the FlowState model from. Two checkpoints are available:
+
+  | Model ID | Notes |
+  |---|---|
+  | `ibm-research/flowstate` | Default IBM Research checkpoint |
+  | `ibm-granite/granite-timeseries-flowstate-r1` | Granite-branded release |
+</ParamField>
+
+<ParamField path="scale_factor" type="float | None" default="None">
+  Scale factor for temporal adaptation. If `None`, the scale factor is automatically determined from the time series frequency using `granite-tsfm`'s `get_fixed_factor`. The scale factor adjusts the model to different sampling rates: for example, quarter-hourly data with a daily seasonal cycle (N=96 steps) uses `scale_factor = 24/96 = 0.25`. Provide an explicit value if automatic detection gives unexpected results.
+</ParamField>
+
+<ParamField path="context_length" type="int" default="2048">
+  Maximum context length (input window size). Controls how much history is fed into the model for each forecast. The model supports flexible context lengths; series exceeding this limit are truncated to the most recent observations.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="1024">
+  Batch size for inference. Defaults to 1,024. Larger values increase throughput but require more GPU memory. The implementation automatically reduces batch size in half on CUDA OOM conditions, so high starting values are generally safe.
+</ParamField>
+
+<ParamField path="alias" type="str" default='"FlowState"'>
+  Name used for this model in output DataFrames and log messages.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True` (default), checkpoint weights are cached in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type="ExogStrategyConfig" default='"auto"'>
+  Controls how exogenous (covariate) variables are handled. FlowState has **no native exogenous support**. In mixed `FoundationForecast` runs that include models with native exog, set `exog_strategy=False` to explicitly disable covariate injection for this model.
+</ParamField>
+
+## Available checkpoints
+
+| Model ID | License |
+|---|---|
+| `ibm-research/flowstate` | Apache-2.0 |
+| `ibm-granite/granite-timeseries-flowstate-r1` | Apache-2.0 |
+
+## Usage example
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import FlowState
+
+df = pd.read_csv("my_timeseries.csv", parse_dates=["ds"])
+
+# Default IBM Research checkpoint with automatic scale factor
+model = FlowState(alias="FlowState")
+
+# Granite checkpoint with explicit scale factor for quarter-hourly data
+model_granite = FlowState(
+    repo_id="ibm-granite/granite-timeseries-flowstate-r1",
+    scale_factor=0.25,   # 24/96 for quarter-hourly data with daily cycle
+    context_length=4096,
+    alias="FlowState-Granite",
+)
+
+ff = FoundationForecast(models=[model])
+fcst_df = ff.forecast(df, h=24, level=[80, 90])
+```
+
+<Tip>
+  FlowState's timescale invariance makes it particularly well-suited for high-frequency data (sub-hourly) and datasets with irregular or mixed sampling rates. The recommended maximum forecast horizon is **no more than 30 seasons** relative to the dominant cycle in your data.
+</Tip>
+
+## Notes
+
+- **Python compatibility:** 3.11–3.13.
+- **Device selection:** Automatically uses CUDA GPU, then Apple MPS, then CPU.
+- **Exogenous variables:** No native exog support. Use `exog_strategy=False` in mixed `FoundationForecast` runs.
+- **Paper:** [FlowState: Sampling Rate Invariant Time Series Forecasting](https://arxiv.org/abs/2508.05287)
+- **GitHub:** [ibm-granite/granite-tsfm](https://github.com/ibm-granite/granite-tsfm)
+- **HuggingFace:** [ibm-research/flowstate](https://huggingface.co/ibm-research/flowstate), [ibm-granite/granite-timeseries-flowstate-r1](https://huggingface.co/ibm-granite/granite-timeseries-flowstate-r1)

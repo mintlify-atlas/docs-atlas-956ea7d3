@@ -1,0 +1,160 @@
+---
+title: "Contribute to FoundationForecast"
+sidebarTitle: "Contributing"
+description: "Set up a local development environment, run tests, build docs, and add new foundation models to FoundationForecast."
+---
+
+Contributions to FoundationForecast are warmly welcomed — whether you are fixing a bug, adding a new foundation model, improving documentation, or writing benchmarks. This guide walks you through everything you need: installing the right tools, cloning the repo, running the test suite, building docs locally, and following the conventions for adding new models.
+
+## Prerequisites
+
+Before setting up your local environment, make sure you have the following tools installed:
+
+<CardGroup cols={2}>
+  <Card title="uv" icon="bolt" href="https://docs.astral.sh/uv/getting-started/installation/">
+    Fast Python package and project manager used to install dependencies and run commands inside the project's virtual environment.
+  </Card>
+  <Card title="pre-commit" icon="shield-check" href="https://pre-commit.com/#install">
+    Git hook framework that runs linters, formatters, and type checkers automatically before each commit.
+  </Card>
+</CardGroup>
+
+<Tip>
+Once `uv` is installed, you can install `pre-commit` directly through it without touching your global Python environment:
+
+```bash
+uv tool install pre-commit
+```
+</Tip>
+
+## Setup
+
+<Steps>
+  <Step title="Install uv and pre-commit">
+    Follow the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for your platform, then install `pre-commit` via `uv tool install pre-commit` as shown above.
+  </Step>
+
+  <Step title="Fork and clone the repository">
+    Fork the [FoundationForecast repository](https://github.com/TimeCopilot/foundationforecast) on GitHub, then clone your fork locally:
+
+    ```bash
+    git clone git@github.com:<your-username>/foundationforecast.git
+    cd foundationforecast
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Use `uv sync` to install the project along with the development and documentation dependency groups:
+
+    ```bash
+    uv sync --group dev --group docs
+    ```
+
+    This creates a local virtual environment under `.venv/` and installs everything needed to run tests, type checks, and build docs.
+  </Step>
+
+  <Step title="Install pre-commit hooks">
+    Wire up the pre-commit hooks so they run automatically on every `git commit`:
+
+    ```bash
+    pre-commit install --install-hooks
+    ```
+
+    The hooks include formatters, linters, and mypy type checks that keep the codebase consistent. They run in the same isolated environment managed by `pre-commit`, so no extra setup is needed.
+  </Step>
+</Steps>
+
+You are now ready to start contributing!
+
+## Running Tests
+
+Run the full test suite with:
+
+```bash
+uv run pytest
+```
+
+To run only the documentation tests (markdown and docstring examples):
+
+```bash
+uv run pytest -m docs
+```
+
+<Note>
+The `benchmark` marker is excluded from the default test run. CodSpeed benchmarks are executed in CI via `.github/workflows/codspeed.yml` and cover core utilities as well as individual model backends.
+</Note>
+
+## Documentation Changes
+
+FoundationForecast's documentation is built with MkDocs. Serve it locally with hot-reload while you edit:
+
+```bash
+uv run --group docs mkdocs serve
+```
+
+To do a full static build:
+
+```bash
+uv run --group docs mkdocs build
+```
+
+<Tip>
+All documentation filenames should use **kebab-case** (e.g. `model-hub.md`, `exogenous-variables.md`). Pull requests are tested in CI to ensure the docs build successfully before merge.
+</Tip>
+
+## Adding a New Model
+
+Adding a foundation model to FoundationForecast involves a small set of consistent steps. Follow them in order to keep the model hub, API docs, and exports in sync.
+
+<Steps>
+  <Step title="Implement the model">
+    Create a new module under `foundationforecast/models/` (e.g. `foundationforecast/models/mymodel.py`). Subclass the appropriate base forecaster and implement `forecast()`. Study an existing model like `chronos.py` or `timesfm.py` for the expected interface and docstring conventions.
+  </Step>
+
+  <Step title="Register the exports">
+    Add the new class to `foundationforecast/models/__init__.py` so it is importable from the models namespace. Then add it to the version-gated top-level exports in `foundationforecast/__init__.py`.
+  </Step>
+
+  <Step title="Update the API reference">
+    Add the class to `docs/api/models/foundation/models.md` so it appears in the auto-generated API documentation. Follow the existing `::: foundationforecast.models.mymodel.MyModel` mkdocstrings pattern.
+  </Step>
+
+  <Step title="Add a model hub entry">
+    Add a row (or card) to `docs/model-hub.md` describing the model name, checkpoint ID, modality, license, and any relevant notes such as context length limits or quantile support.
+  </Step>
+
+  <Step title="Consider an example notebook">
+    If the model belongs to a family with multiple checkpoints, add a family comparison notebook under `docs/examples/` (e.g. `mymodel-family.ipynb`). See `timesfm-family.ipynb` or `tabpfn-family.ipynb` for format reference.
+  </Step>
+</Steps>
+
+## Forked Dependencies
+
+FoundationForecast relies on several upstream libraries that require patches not yet merged into the originals. These are maintained as forks and published under custom names on PyPI. You do **not** need to install the originals — `uv sync` resolves the correct forked packages automatically.
+
+| Upstream package | PyPI name used by FoundationForecast |
+|---|---|
+| `chronos-forecasting` | [`timecopilot-chronos-forecasting`](https://pypi.org/project/timecopilot-chronos-forecasting/) |
+| `timesfm` | [`timecopilot-timesfm`](https://pypi.org/project/timecopilot-timesfm/) |
+| `tirex` | [`timecopilot-tirex`](https://pypi.org/project/timecopilot-tirex/) |
+| `toto` | [`timecopilot-toto`](https://pypi.org/project/timecopilot-toto/) |
+| `uni2ts` | [`timecopilot-uni2ts`](https://pypi.org/project/timecopilot-uni2ts/) |
+
+<Note>
+**FlowState** and **PatchTST-FM** use the upstream [`granite-tsfm`](https://pypi.org/project/granite-tsfm/) package (`>=0.3.9`). PatchTST-FM r2 specifically requires `>=0.3.9` for overlapping-patch inference support. The former `timecopilot-granite-tsfm` fork is no longer a dependency as of v0.1.8.
+</Note>
+
+For links to the upstream fork repositories and contribution notes specific to each dependency, see the [TimeCopilot contributing guide](https://timecopilot.dev/community/contributing/).
+
+## Community
+
+Have a question, spotted a bug, or want to discuss a new model integration? Reach out through either of these channels:
+
+<CardGroup cols={2}>
+  <Card title="Discord" icon="discord" href="https://discord.gg/7GEdHR6Pfg">
+    Join the TimeCopilot Discord server for real-time discussion, model recommendations, and community support.
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/TimeCopilot/foundationforecast/issues">
+    Open an issue for bug reports, feature requests, or to propose a new foundation model integration.
+  </Card>
+</CardGroup>

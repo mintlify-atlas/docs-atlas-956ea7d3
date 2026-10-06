@@ -1,0 +1,230 @@
+---
+title: "Run Multi-Model Time Series Forecasts"
+sidebarTitle: "Forecasting"
+description: "Learn how to call forecast() on FoundationForecast with multiple models, configure horizon and frequency, and interpret the output DataFrame."
+---
+
+FoundationForecast provides a single `forecast()` entry point that runs one or more pretrained foundation models on your time series data and returns a unified output DataFrame. Whether you're forecasting a single series or thousands simultaneously (panel forecasting), the call signature stays the same — you only need to supply a properly structured DataFrame, a horizon, and optionally a frequency string.
+
+## Input DataFrame format
+
+Every method in FoundationForecast expects a pandas DataFrame with exactly three required columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `unique_id` | `str` or any hashable | Identifies each series in a panel |
+| `ds` | `datetime64` | Timestamps for each observation |
+| `y` | `float` | The target time series values |
+
+<Note>
+  For best results, pass `ds` as a proper `datetime64` dtype — for example, use `parse_dates=["ds"]` when calling `pd.read_csv()`. Cross-validation and anomaly detection will convert `ds` to datetime internally, but explicit parsing avoids subtle sorting bugs.
+</Note>
+
+## The `forecast()` method
+
+```python
+ff.forecast(df, h, freq=None, level=None, quantiles=None, X_df=None)
+```
+
+<ParamField path="df" type="pd.DataFrame" required>
+  Input time series. Must contain `unique_id`, `ds`, and `y` columns. Add exogenous columns here when using covariates.
+</ParamField>
+
+<ParamField path="h" type="int" required>
+  Forecast horizon — the number of future periods to predict. Must be a positive integer.
+</ParamField>
+
+<ParamField path="freq" type="str">
+  Pandas offset alias describing the timestamp spacing (e.g. `"H"` for hourly, `"D"` for daily, `"MS"` for month-start). If omitted, FoundationForecast infers the frequency from the most common series in `df`. Passing `freq` explicitly is recommended, especially when your data has gaps or irregular intervals.
+</ParamField>
+
+<ParamField path="level" type="list[int]">
+  Confidence levels for prediction intervals, as integer percentages (e.g. `[80, 95]`). Mutually exclusive with `quantiles`. Produces `{model}-lo-{L}` and `{model}-hi-{L}` columns in the output.
+</ParamField>
+
+<ParamField path="quantiles" type="list[float]">
+  Quantile levels in `(0, 1)` with at most three decimal places (e.g. `[0.1, 0.5, 0.9]`). Mutually exclusive with `level`. Produces `{model}-q-{pct}` columns in the output.
+</ParamField>
+
+<ParamField path="X_df" type="pd.DataFrame">
+  Known-future exogenous variables for the forecast horizon. Must contain `unique_id`, `ds`, and exog columns (no `y`). Only supported by select checkpoints — see the [Exogenous Variables](/guides/exogenous-variables) guide.
+</ParamField>
+
+## Frequency inference
+
+If you omit `freq`, FoundationForecast calls `maybe_infer_freq()` internally, which looks at the most frequent series in your DataFrame and calls `pd.infer_freq()` on its sorted timestamps. If inference fails — typically due to missing periods or irregular spacing — a `RuntimeError` is raised with instructions to pass `freq` explicitly.
+
+<Tip>
+  See the [pandas offset aliases reference](https://pandas.pydata.org/pandas-docs/stable/user_guide/timeseries.html#offset-aliases) for valid `freq` strings: `"H"`, `"D"`, `"W"`, `"MS"`, `"QS"`, `"YS"`, and so on.
+</Tip>
+
+## Quick start: point forecast
+
+The minimal call requires only a DataFrame, a horizon, and at least one model.
+
+<Steps>
+  <Step title="Install FoundationForecast">
+    ```bash
+    pip install foundationforecast
+    ```
+  </Step>
+
+  <Step title="Load your data">
+    ```python
+    import pandas as pd
+
+    df = pd.read_csv(
+        "https://timecopilot.s3.amazonaws.com/public/data/air_passengers.csv",
+        parse_dates=["ds"],
+    )
+    print(df.head())
+    # unique_id          ds     y
+    # AirPassengers  1949-01-01  112.0
+    # AirPassengers  1949-02-01  118.0
+    # ...
+    ```
+  </Step>
+
+  <Step title="Run a forecast">
+    ```python
+    from foundationforecast import FoundationForecast
+    from foundationforecast.models import Chronos
+
+    ff = FoundationForecast(models=[Chronos()])
+    fcst_df = ff.forecast(df=df, h=12, freq="MS")
+    print(fcst_df)
+    ```
+  </Step>
+</Steps>
+
+## Multi-model forecast
+
+Pass multiple model instances to `FoundationForecast` to run them all in a single call. Each model must have a unique `alias`.
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, TimesFM
+
+ff = FoundationForecast(
+    models=[
+        Chronos(alias="Chronos"),
+        TimesFM(alias="TimesFM"),
+    ]
+)
+
+fcst_df = ff.forecast(df=df, h=12, freq="MS")
+print(fcst_df.columns.tolist())
+# ['unique_id', 'ds', 'Chronos', 'TimesFM']
+```
+
+## Panel forecasting (multiple series)
+
+FoundationForecast handles panel data natively. Simply include multiple `unique_id` values in your DataFrame — the same single `forecast()` call processes all series in one shot.
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos
+
+# df contains multiple series under different unique_ids
+print(df["unique_id"].unique())
+# ['series_A', 'series_B', 'series_C']
+
+ff = FoundationForecast(models=[Chronos()])
+fcst_df = ff.forecast(df=df, h=12, freq="MS")
+
+# Output has one row per (unique_id, future ds)
+print(fcst_df.shape)
+# (36, 3)  →  3 series × 12 horizon steps
+```
+
+## Output DataFrame structure
+
+The output of `forecast()` always contains:
+
+| Column | Description |
+|--------|-------------|
+| `unique_id` | Series identifier (one row per series per horizon step) |
+| `ds` | Future timestamp for each horizon step |
+| `{model alias}` | Point forecast from each model |
+| `{model alias}-lo-{L}` | Lower bound at confidence level `L` (when `level` is set) |
+| `{model alias}-hi-{L}` | Upper bound at confidence level `L` (when `level` is set) |
+| `{model alias}-q-{pct}` | Quantile forecast (when `quantiles` is set) |
+
+For example, with `models=[Chronos(), TimesFM()]` and `level=[80, 95]`:
+
+```python
+fcst_df = ff.forecast(df=df, h=12, freq="MS", level=[80, 95])
+print(fcst_df.columns.tolist())
+# ['unique_id', 'ds',
+#  'Chronos', 'Chronos-lo-80', 'Chronos-hi-80', 'Chronos-lo-95', 'Chronos-hi-95',
+#  'TimesFM', 'TimesFM-lo-80', 'TimesFM-hi-80', 'TimesFM-lo-95', 'TimesFM-hi-95']
+```
+
+The point forecast is always present in the `{model alias}` column regardless of whether `level` or `quantiles` is also specified.
+
+## Fallback model
+
+Use the `fallback_model` parameter to provide a substitute model that runs automatically when a primary model raises a `ValueError` or `RuntimeError`. The fallback result is relabelled with the failing model's alias so downstream code stays consistent.
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, TimesFM
+
+ff = FoundationForecast(
+    models=[
+        Chronos(repo_id="amazon/chronos-bolt-tiny", alias="Chronos"),
+        TimesFM(alias="TimesFM"),
+    ],
+    fallback_model=Chronos(repo_id="amazon/chronos-bolt-mini", alias="fallback"),
+)
+
+fcst_df = ff.forecast(df=df, h=12, freq="MS")
+```
+
+<Warning>
+  When a fallback model runs for a failing model, FoundationForecast does **not** fall back again if the fallback itself errors — the original exception is re-raised. Validate that your fallback model can handle the same input data.
+</Warning>
+
+## Releasing GPU memory with `clean_cache`
+
+In multi-model runs, all loaded model weights accumulate in GPU memory by default. Set `clean_cache=True` on `FoundationForecast` to call `clear_model_cache()` on each model immediately after it finishes forecasting, freeing GPU memory before the next model loads.
+
+```python
+ff = FoundationForecast(
+    models=[
+        Chronos(alias="Chronos"),
+        TimesFM(alias="TimesFM"),
+    ],
+    clean_cache=True,  # release GPU memory after each model
+)
+
+fcst_df = ff.forecast(df=df, h=12, freq="MS")
+```
+
+<Note>
+  `clean_cache=True` increases total wall time slightly (weights are reloaded on subsequent calls) but reduces peak GPU memory — useful when running many large models in a single process.
+</Note>
+
+## Plotting forecasts
+
+Visualise your forecasts with `ff.plot()`. It requires the `foundationforecast[plot]` optional extra.
+
+<CodeGroup>
+  ```bash Install plotting extra
+  pip install "foundationforecast[plot]"
+  # or: uv add "foundationforecast[plot]"
+  ```
+
+  ```python Plot forecasts
+  from foundationforecast import FoundationForecast
+  from foundationforecast.models import Chronos
+
+  ff = FoundationForecast(models=[Chronos()])
+  fcst_df = ff.forecast(df=df, h=12, freq="MS", level=[90])
+
+  ff.plot(df=df, forecasts_df=fcst_df, level=[90])
+  ```
+</CodeGroup>
+
+`ff.plot()` is a static method wrapping `utilsforecast.plotting.plot_series`. It supports `matplotlib` (default) and `plotly` engines, random or explicit series selection (`ids`, `plot_random`), and maximum insample length trimming (`max_insample_length`).

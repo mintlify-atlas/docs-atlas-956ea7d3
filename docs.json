@@ -1,72 +1,96 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mintlify Starter Kit",
+  "name": "FoundationForecast",
+  "theme": "luma",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#fbd342",
+    "light": "#3b73a4",
+    "dark": "#e4e3de"
   },
-  "favicon": "/favicon.svg",
-  "navigation": {
-    "pages": [
-      {
-        "group": "Getting Started",
-        "pages": [
-          "index",
-          "quickstart"
-        ]
-      }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
+  "favicon": "https://media.brand.dev/284de1db-b2b7-4520-9290-e2e3f6e34ded.png",
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "https://media.brand.dev/9e9403b8-e6bc-475f-a1fb-ccef99f570ea.svg",
+    "dark": "https://media.brand.dev/9e9403b8-e6bc-475f-a1fb-ccef99f570ea.svg"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:support@mintlify.com"
-      }
-    ],
     "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://app.mintlify.com"
+      "type": "github",
+      "href": "https://github.com/TimeCopilot/foundationforecast"
     }
-  },
-  "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude",
-      "perplexity",
-      "mcp",
-      "cursor",
-      "vscode"
-    ]
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/TimeCopilot/foundationforecast"
     }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/forecasting",
+              "guides/cross-validation",
+              "guides/anomaly-detection",
+              "guides/exogenous-variables",
+              "guides/probabilistic-forecasts"
+            ]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "models/model-hub",
+              "models/model-weight-cache"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "resources/changelog",
+              "resources/contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/foundation-forecast",
+              "api/forecaster"
+            ]
+          },
+          {
+            "group": "Model Classes",
+            "pages": [
+              "api/models/chronos",
+              "api/models/moirai",
+              "api/models/timesfm",
+              "api/models/timegpt",
+              "api/models/toto",
+              "api/models/tirex",
+              "api/models/tabpfn",
+              "api/models/t0",
+              "api/models/flowstate",
+              "api/models/patchtst-fm",
+              "api/models/sundial",
+              "api/models/tafsut"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

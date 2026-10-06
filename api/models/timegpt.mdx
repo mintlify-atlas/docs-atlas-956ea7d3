@@ -1,0 +1,190 @@
+---
+title: "TimeGPT Model API Reference"
+sidebarTitle: "TimeGPT"
+description: "API reference for the TimeGPT class. Nixtla's hosted API model with native exogenous variable support and finetuning via TimeGPTFinetuningConfig."
+---
+
+TimeGPT is Nixtla's production-grade hosted foundation model for time series forecasting and anomaly detection. Unlike local-weight models, TimeGPT runs entirely on Nixtla's infrastructure—you send your data via the REST API and receive forecasts in return. It is built on a large encoder-decoder transformer trained on more than 100 billion data points spanning diverse domains and frequencies. TimeGPT natively supports exogenous (covariate) variables and on-the-fly finetuning on any model variant, making it well-suited for scenarios where training data context and future-known features are available.
+
+<Warning>
+  TimeGPT requires a valid API key from Nixtla. Set the `NIXTLA_API_KEY` environment variable or pass `api_key=` directly to the constructor. Usage is subject to [Nixtla's terms of service and pricing](https://www.nixtla.io/docs). This is a **hosted API**, not open weights.
+</Warning>
+
+## Import
+
+```python
+from foundationforecast.models import TimeGPT, TimeGPTFinetuningConfig
+```
+
+## API key setup
+
+```bash
+export NIXTLA_API_KEY="your-key-here"
+```
+
+Or pass the key at construction time:
+
+```python
+model = TimeGPT(api_key="your-key-here")
+```
+
+---
+
+## `TimeGPT`
+
+```python
+TimeGPT(
+    api_key=None,
+    base_url=None,
+    max_retries=1,
+    model="timegpt-1",
+    alias="TimeGPT",
+    finetuning_config=None,
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+The `TimeGPT` class wraps Nixtla's `NixtlaClient` and exposes the standard FoundationForecast `forecast()` interface. Because the model runs remotely, there are no local weights to load or GPU requirements. The `reuse_loaded_model` flag is accepted for interface consistency but has no effect.
+
+### Parameters
+
+<ParamField path="api_key" type="str | None" default="None">
+  API key for authenticating with the Nixtla TimeGPT API. When `None`, the value of the `NIXTLA_API_KEY` environment variable is used. An error is raised if neither is set.
+</ParamField>
+
+<ParamField path="base_url" type="str | None" default="None">
+  Base URL for the TimeGPT REST API. When `None`, the default official Nixtla endpoint is used. Provide this if you are accessing a private or self-hosted deployment.
+</ParamField>
+
+<ParamField path="max_retries" type="int" default="1">
+  Maximum number of retry attempts for failed API requests. Defaults to `1` (no retries beyond the initial attempt).
+</ParamField>
+
+<ParamField path="model" type="str" default="timegpt-1">
+  Model identifier to use for forecasting. Defaults to `"timegpt-1"`. Available model IDs:
+
+  - `timegpt-1` — Standard model, good general-purpose coverage.
+  - `timegpt-1-long-horizon` — Optimized for long forecast horizons.
+  - `timegpt-2-mini` — Compact next-generation model.
+  - `timegpt-2` — Full next-generation model.
+  - `timegpt-2-pro` — Highest-capability next-generation model.
+
+  See the [Nixtla docs](https://www.nixtla.io/docs) for current availability and feature differences.
+</ParamField>
+
+<ParamField path="alias" type="str" default="TimeGPT">
+  Name used for this model in output DataFrame columns and logs. Change this when running multiple models together.
+</ParamField>
+
+<ParamField path="finetuning_config" type="TimeGPTFinetuningConfig | None" default="None">
+  When provided, the model is finetuned on the context data in `df` before predicting. Parameters are forwarded to `NixtlaClient.forecast()`. See [`TimeGPTFinetuningConfig`](#timegptfinetuningconfig) for details.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  Accepted for API consistency with other forecasters. TimeGPT does not load local weights, so this flag has no practical effect.
+</ParamField>
+
+<ParamField path="exog_strategy" type='"auto" | False' default='"auto"'>
+  Controls how exogenous variables in `X_df` are handled. TimeGPT natively supports `X_df` on every model variant, so `"auto"` always activates native exog. Set to `False` to disable exog handling in mixed `FoundationForecast` runs.
+</ParamField>
+
+### Exogenous variable support
+
+<Note>
+  TimeGPT natively supports exogenous (covariate) variables on **all model variants**. Pass `X_df` to `forecast()` or include exog columns in `df` for `cross_validation()`. No additional configuration is required.
+</Note>
+
+### Requirements
+
+- Python **3.10+**
+- Active Nixtla API key
+
+### Basic usage
+
+```python
+import pandas as pd
+from foundationforecast.models import TimeGPT
+
+model = TimeGPT(model="timegpt-1")
+
+df = pd.read_csv("timeseries.csv", parse_dates=["ds"])
+fcst_df = model.forecast(df=df, h=24, level=[80, 95])
+print(fcst_df)
+```
+
+Forecasting with future-known exogenous variables:
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import TimeGPT
+
+ff = FoundationForecast(
+    models=[TimeGPT(model="timegpt-2", alias="TimeGPT-2")]
+)
+
+fcst_df = ff.forecast(df=df, h=24, X_df=X_df, level=[90])
+```
+
+---
+
+## `TimeGPTFinetuningConfig`
+
+```python
+TimeGPTFinetuningConfig(
+    finetune_steps=10,
+    finetune_loss="default",
+    finetune_depth=1,
+)
+```
+
+Dataclass that configures finetuning for TimeGPT before forecasting. Pass an instance to `TimeGPT(finetuning_config=...)`. When `forecast()` is called, `finetune_steps`, `finetune_loss`, and `finetune_depth` are forwarded as keyword arguments to `NixtlaClient.forecast()`.
+
+<Note>
+  Finetuning is based on the [TimeGPT fine-tuning documentation](https://docs.nixtla.io/forecasting/fine-tuning/steps). Finetuning steps are billed as API usage.
+</Note>
+
+### Parameters
+
+<ParamField path="finetune_steps" type="int" default="10">
+  Number of gradient-update training iterations. The model is adapted to your data for this many steps to minimize forecasting error. Defaults to `10`.
+</ParamField>
+
+<ParamField path="finetune_loss" type='"default" | "mae" | "mse" | "rmse" | "mape" | "smape"' default='"default"'>
+  Loss function used during finetuning. `"default"` lets Nixtla choose the most appropriate loss for the data. Other options allow targeting a specific error metric.
+</ParamField>
+
+<ParamField path="finetune_depth" type="1 | 2 | 3 | 4 | 5" default="1">
+  Number of model layers that are unfrozen and updated during finetuning, on a scale from `1` (fewest parameters, fastest) to `5` (entire model, most expressive). Higher values increase both training time and the risk of overfitting on small datasets. Defaults to `1`.
+</ParamField>
+
+### Finetuning example
+
+```python
+from foundationforecast.models import TimeGPT, TimeGPTFinetuningConfig
+
+model = TimeGPT(
+    model="timegpt-1",
+    finetuning_config=TimeGPTFinetuningConfig(
+        finetune_steps=50,
+        finetune_loss="mae",
+        finetune_depth=2,
+    ),
+)
+
+fcst_df = model.forecast(df=df, h=24)
+```
+
+<Tip>
+  Start with `finetune_depth=1` and `finetune_steps=10`–`50`. Only increase depth when you have sufficient in-distribution training data and have confirmed that shallower settings underfit.
+</Tip>
+
+---
+
+## License & references
+
+TimeGPT is a **hosted API** offered by Nixtla. Usage is subject to [Nixtla's terms of service and pricing](https://www.nixtla.io/docs). There are no open model weights. FoundationForecast itself is Apache-2.0.
+
+- **Paper:** [TimeGPT-1](https://arxiv.org/abs/2310.03589)
+- **GitHub:** [Nixtla/nixtla](https://github.com/Nixtla/nixtla)
+- **Documentation:** [docs.nixtla.io](https://docs.nixtla.io)

@@ -1,0 +1,166 @@
+---
+title: "Moirai Model API Reference"
+sidebarTitle: "Moirai"
+description: "API reference for the Moirai class. Supports Salesforce MOIRAI checkpoints including moirai-1.0, 1.1, 2.0, and MoE variants for probabilistic time series forecasting."
+---
+
+Moirai is Salesforce's universal foundation model for time series forecasting. It is built on a masked encoder-based transformer architecture with multi-patch-size projection layers and Any-Variate Attention, enabling zero-shot probabilistic forecasting across diverse frequencies and multivariate settings. The family includes the original MOIRAI 1.0 and 1.1 checkpoint series, the improved 2.0 series, and Mixture-of-Experts (MoE) variants. Moirai is the recommended choice when you need strong zero-shot probabilistic coverage on datasets spanning multiple granularities.
+
+<Warning>
+  Moirai checkpoint weights are released under the **CC-BY-NC-4.0** license. This permits research and evaluation but **prohibits commercial use** without a separate agreement from Salesforce. Confirm the license of the specific `repo_id` you intend to deploy.
+</Warning>
+
+## Import
+
+```python
+from foundationforecast.models import Moirai
+```
+
+---
+
+## `Moirai`
+
+```python
+Moirai(
+    repo_id="Salesforce/moirai-1.0-R-large",
+    filename="model.ckpt",
+    context_length=4096,
+    patch_size=32,
+    num_samples=100,
+    target_dim=1,
+    feat_dynamic_real_dim=0,
+    past_feat_dynamic_real_dim=0,
+    batch_size=32,
+    alias="Moirai",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+The `Moirai` class wraps Salesforce MOIRAI checkpoints through the GluonTS prediction pipeline. The correct model class (`MoiraiForecast`, `Moirai2Forecast`, or `MoiraiMoEForecast`) is selected automatically based on `repo_id`—there is no need to configure the backend manually. The model is loaded onto a CUDA GPU when one is available, falling back to CPU otherwise.
+
+<Note>
+  `patch_size` and `num_samples` are not used for **Moirai 2.0** checkpoints. The 2.0 architecture handles patching internally and does not expose these configuration knobs.
+</Note>
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default="Salesforce/moirai-1.0-R-large">
+  HuggingFace Hub model ID or local path to load the Moirai model from. The version string in the ID (`1.0`, `1.1`, `2.0`, or `moe`) determines which backend is used.
+
+  See [Available checkpoints](#available-checkpoints) below.
+</ParamField>
+
+<ParamField path="filename" type="str" default="model.ckpt">
+  Filename of the model checkpoint weights file inside the repository. Defaults to `"model.ckpt"`, which is the standard name used by all official Salesforce Moirai checkpoints.
+</ParamField>
+
+<ParamField path="context_length" type="int" default="4096">
+  Maximum context window size (number of historical time steps) fed to the model. Controls how much history is used per forecast. Defaults to `4096`. Reduce this value to lower memory consumption on shorter series.
+</ParamField>
+
+<ParamField path="patch_size" type="int" default="32">
+  Patch size for the patch-based input encoding. Valid values include `8`, `16`, `32`, `64`, and `128`. Defaults to `32`. See the Moirai paper for recommended values per frequency. **Not used** for Moirai-2.0 checkpoints.
+</ParamField>
+
+<ParamField path="num_samples" type="int" default="100">
+  Number of forecast samples drawn for probabilistic uncertainty estimation. Higher values produce smoother quantile estimates at the cost of increased inference time. Defaults to `100`. **Not used** for Moirai-2.0 checkpoints.
+</ParamField>
+
+<ParamField path="target_dim" type="int" default="1">
+  Number of target variables. Set to `1` for univariate forecasting. For multivariate forecasting, set to the number of variables in your dataset.
+</ParamField>
+
+<ParamField path="feat_dynamic_real_dim" type="int" default="0">
+  Number of dynamic real-valued covariates that are known over the forecast horizon (future covariates). Defaults to `0` (no future covariates).
+</ParamField>
+
+<ParamField path="past_feat_dynamic_real_dim" type="int" default="0">
+  Number of past-only dynamic real-valued covariates (available during the context window but not in the future). Defaults to `0`.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="32">
+  Batch size for inference. Defaults to `32`. Adjust based on available GPU memory and model size.
+</ParamField>
+
+<ParamField path="alias" type="str" default="Moirai">
+  Name used for this model in output DataFrame columns and logs. Change this when running multiple models together to keep forecast columns distinct.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True`, loaded checkpoint weights are kept in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type='"auto" | False' default='"auto"'>
+  Controls how exogenous variables are handled. Moirai does not have native `X_df` support. In mixed `FoundationForecast` runs where other models consume `X_df`, set `exog_strategy=False` to ensure Moirai silently ignores the horizon exog rather than raising an error.
+</ParamField>
+
+### Exogenous variable support
+
+<Note>
+  Moirai does not support native `X_df` exogenous variables. When running alongside models that do (e.g. Chronos-2, TimeGPT), set `exog_strategy=False` on the `Moirai` instance to suppress any exog-related warnings or errors.
+</Note>
+
+### Available checkpoints
+
+| Model ID | Size |
+|---|---|
+| `Salesforce/moirai-1.0-R-small` | Small |
+| `Salesforce/moirai-1.0-R-base` | Base |
+| `Salesforce/moirai-1.0-R-large` | Large |
+| `Salesforce/moirai-1.1-R-small` | Small |
+| `Salesforce/moirai-1.1-R-base` | Base |
+| `Salesforce/moirai-1.1-R-large` | Large |
+| `Salesforce/moirai-2.0-R-small` | Small |
+| `Salesforce/moirai-2.0-R-base` | Base |
+| `Salesforce/moirai-2.0-R-large` | Large |
+| `Salesforce/moirai-moe-1.0-R-small` | Small (MoE) |
+| `Salesforce/moirai-moe-1.0-R-base` | Base (MoE) |
+
+### Requirements
+
+- Python **3.10+**
+
+### Basic usage
+
+```python
+import pandas as pd
+from foundationforecast.models import Moirai
+
+model = Moirai(
+    repo_id="Salesforce/moirai-1.1-R-large",
+    context_length=2048,
+    num_samples=200,
+)
+
+df = pd.read_csv("timeseries.csv", parse_dates=["ds"])
+fcst_df = model.forecast(df=df, h=24, level=[80, 95])
+print(fcst_df)
+```
+
+Using Moirai alongside an exog-capable model in `FoundationForecast`:
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, Moirai
+
+ff = FoundationForecast(
+    models=[
+        Chronos(repo_id="amazon/chronos-2", alias="Chronos-2"),
+        # Moirai will skip X_df since it has no native exog support
+        Moirai(repo_id="Salesforce/moirai-1.1-R-base", exog_strategy=False),
+    ]
+)
+
+fcst_df = ff.forecast(df=df, h=24, X_df=X_df)
+```
+
+---
+
+## License & references
+
+Moirai checkpoint weights are released under **CC-BY-NC-4.0** (non-commercial only). FoundationForecast itself is Apache-2.0.
+
+- **Paper:** [Unified Training of Universal Time Series Forecasting Transformers](https://arxiv.org/abs/2402.02592)
+- **GitHub:** [SalesforceAIResearch/uni2ts](https://github.com/SalesforceAIResearch/uni2ts)
+- **HuggingFace collection:** [Salesforce/moirai-r-models](https://huggingface.co/collections/Salesforce/moirai-r-models-65c8d3a94c51428c300e0742)

@@ -1,0 +1,177 @@
+---
+title: "Detect Anomalies in Time Series with Foundation Models"
+sidebarTitle: "Anomaly Detection"
+description: "Use detect_anomalies() to flag outliers in time series data using cross-validation residuals and a configurable confidence level."
+---
+
+FoundationForecast's `detect_anomalies()` method uses foundation models to identify unusual observations in your time series — no hand-crafted rules or domain-specific thresholds required. Under the hood it runs rolling-window cross-validation, computes per-series residuals, and flags any point whose absolute z-score exceeds the critical value derived from your chosen confidence level.
+
+## How anomaly detection works
+
+The detection process follows four steps:
+
+1. **Cross-validation**: `detect_anomalies()` calls `cross_validation()` with `step_size=h`, generating model predictions for the held-out windows.
+2. **Residuals**: the residual at each point is `y − ŷ` (actual minus predicted).
+3. **Per-series z-scores**: residuals are standardised by the per-series standard deviation of all residuals: `z = residual / std(residuals)`.
+4. **Flagging**: any point where `|z| > critical_z` is marked as an anomaly, where `critical_z = norm.ppf(1 − α/2)` and `α = 1 − level/100`.
+
+A higher `level` (e.g. `99`) means a larger critical z-score, so only the most extreme deviations are flagged. A lower `level` (e.g. `90`) flags more points.
+
+## The `detect_anomalies()` method
+
+```python
+ff.detect_anomalies(df, h=None, freq=None, n_windows=None, level=99)
+```
+
+<ParamField path="df" type="pd.DataFrame" required>
+  Input time series with `unique_id`, `ds`, and `y` columns.
+</ParamField>
+
+<ParamField path="h" type="int">
+  Forecast horizon used for cross-validation windows. Defaults to the seasonal period for the inferred frequency (e.g. `12` for monthly data, `24` for hourly). Aligning `h` with the dominant seasonal cycle is recommended.
+</ParamField>
+
+<ParamField path="freq" type="str">
+  Pandas offset alias for the timestamp spacing. Inferred from `df` if omitted.
+</ParamField>
+
+<ParamField path="n_windows" type="int">
+  Number of rolling cross-validation windows. Defaults to the maximum number of non-overlapping windows that fit in the shortest series. Passing a smaller value limits how far back in time anomalies can be detected.
+</ParamField>
+
+<ParamField path="level" type="int | float" default="99">
+  Confidence level as a percentage. Higher values produce wider bands and flag fewer points. Must be in `(0, 100)`.
+</ParamField>
+
+## Minimum series length
+
+Each series must contain at least `h + 1` observations. If any series falls below this minimum, `detect_anomalies()` raises a `ValueError` specifying the required and actual lengths.
+
+```
+Minimum required: h + 1
+Actual minimum:   len(shortest series)
+```
+
+## Basic example
+
+<Steps>
+  <Step title="Load data">
+    ```python
+    import pandas as pd
+
+    df = pd.read_csv(
+        "https://timecopilot.s3.amazonaws.com/public/data/air_passengers.csv",
+        parse_dates=["ds"],
+    )
+    ```
+  </Step>
+
+  <Step title="Run anomaly detection">
+    ```python
+    from foundationforecast import FoundationForecast
+    from foundationforecast.models import Chronos
+
+    ff = FoundationForecast(models=[Chronos()])
+    anomalies_df = ff.detect_anomalies(df=df, freq="MS", level=99)
+    print(anomalies_df.head())
+    ```
+  </Step>
+
+  <Step title="Filter to anomalous rows">
+    ```python
+    anoms = anomalies_df[anomalies_df["Chronos-anomaly"] == True]
+    print(f"Found {len(anoms)} anomalous point(s)")
+    print(anoms[["unique_id", "ds", "y", "Chronos", "Chronos-lo-99", "Chronos-hi-99"]])
+    ```
+  </Step>
+</Steps>
+
+## Output DataFrame structure
+
+`detect_anomalies()` returns one row per `(unique_id, ds)` observation that fell inside a cross-validation validation window.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `unique_id` | str | Series identifier |
+| `ds` | datetime | Observation timestamp |
+| `cutoff` | datetime | Last training date for the window |
+| `y` | float | Actual observed value |
+| `{alias}` | float | Model point forecast |
+| `{alias}-lo-{level}` | float | Lower bound of the anomaly band |
+| `{alias}-hi-{level}` | float | Upper bound of the anomaly band |
+| `{alias}-anomaly` | bool | `True` if the point is flagged as an anomaly |
+
+For example, with a `Chronos` model and `level=99`:
+
+```python
+print(anomalies_df.columns.tolist())
+# ['unique_id', 'ds', 'cutoff', 'y', 'Chronos', 'Chronos-lo-99', 'Chronos-hi-99', 'Chronos-anomaly']
+```
+
+## Multi-model anomaly detection
+
+Pass multiple models to `FoundationForecast` to get an anomaly column per model. This is useful for cross-checking which anomalies are flagged consistently across models:
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, TimesFM
+
+ff = FoundationForecast(
+    models=[
+        Chronos(alias="Chronos"),
+        TimesFM(alias="TimesFM"),
+    ]
+)
+
+anomalies_df = ff.detect_anomalies(df=df, freq="MS", level=99)
+
+# Points flagged by both models
+both = anomalies_df[
+    (anomalies_df["Chronos-anomaly"]) & (anomalies_df["TimesFM-anomaly"])
+]
+print(f"Agreed anomalies: {len(both)}")
+```
+
+## Adjusting sensitivity
+
+The `level` parameter directly controls how sensitive detection is:
+
+| `level` | Critical z-score | Sensitivity |
+|---------|-----------------|-------------|
+| `90` | ~1.64 | Higher — more points flagged |
+| `95` | ~1.96 | Moderate |
+| `99` | ~2.58 | Lower — only extreme deviations flagged |
+| `99.9` | ~3.29 | Very low — only severe outliers |
+
+```python
+# More sensitive: flag moderate deviations
+anomalies_95 = ff.detect_anomalies(df=df, freq="MS", level=95)
+
+# Less sensitive: flag only extreme outliers
+anomalies_99 = ff.detect_anomalies(df=df, freq="MS", level=99)
+```
+
+## Controlling the lookback window
+
+By default, `n_windows` is set to the maximum number of non-overlapping windows that fit in the shortest series. To limit how far back anomaly detection looks, set `n_windows` explicitly:
+
+```python
+# Only evaluate the two most recent folds
+anomalies_df = ff.detect_anomalies(df=df, freq="MS", n_windows=2, level=99)
+```
+
+<Note>
+  The `h` parameter in `detect_anomalies()` controls the fold size, not a future prediction horizon. Using `h` equal to the seasonal period (e.g. `h=12` for monthly, `h=24` for hourly) aligns each fold with one full cycle, giving the residual distribution more context.
+</Note>
+
+## Plotting anomalies
+
+Pass the `detect_anomalies()` output directly to `ff.plot()`. The plot method auto-detects the `-anomaly` columns and renders the anomalous points as highlighted markers within the prediction band.
+
+```python
+ff.plot(forecasts_df=anomalies_df)
+```
+
+<Tip>
+  When `forecasts_df` contains `-anomaly` columns, `ff.plot()` automatically sets `plot_anomalies=True`, drops the boolean flag column, and extracts the confidence level from the band column names — no extra configuration needed.
+</Tip>

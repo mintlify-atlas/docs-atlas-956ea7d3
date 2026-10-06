@@ -1,0 +1,324 @@
+---
+title: "Foundation Model Hub: All Supported Models and Checkpoints"
+sidebarTitle: "Model Hub"
+description: "Browse all 12 supported time series foundation models in FoundationForecast, with default checkpoints, Python version requirements, and license information."
+---
+
+FoundationForecast provides a unified API across 12 state-of-the-art time series foundation models. Every model in the hub supports `forecast`, `cross_validation`, and `detect_anomalies` through an identical interface — swap a single constructor call to change the underlying model without touching any other part of your code.
+
+<Tip>
+  All models that load local weights automatically cache them across repeated
+  `forecast()` calls. See [Model Weight Cache](/models/model-weight-cache) for
+  `reuse_loaded_model`, `set_max_cached_models()`, and `clean_cache`.
+</Tip>
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, Toto
+
+df = pd.read_csv(
+    "https://timecopilot.s3.amazonaws.com/public/data/air_passengers.csv",
+    parse_dates=["ds"],
+)
+ff = FoundationForecast(
+    models=[
+        Chronos(),
+        Toto(context_length=256),
+    ]
+)
+
+fcst_df = ff.forecast(df=df, h=12, freq="MS")
+cv_df = ff.cross_validation(df=df, h=12, freq="MS")
+```
+
+## Supported Models
+
+The table below lists every supported model, its provider, the default checkpoint loaded when no `repo_id` is specified, Python version requirements, and the weight/checkpoint license. Licenses are verified against HuggingFace model cards; check the model card for your specific `repo_id` when in doubt.
+
+| Model | Provider | Default Checkpoint | Python | License |
+|---|---|---|---|---|
+| Chronos | Amazon | `amazon/chronos-t5-large` | 3.10+ | Apache-2.0 |
+| FlowState | IBM | `ibm-research/flowstate` | 3.11–3.13 | Apache-2.0 |
+| Moirai | Salesforce | `Salesforce/moirai-1.1-R-large` | 3.10+ | CC-BY-NC-4.0 |
+| PatchTST-FM | IBM | `ibm-research/patchtst-fm-r1` | 3.11–3.13 | CC-BY-NC-SA-4.0 (r1) / Apache-2.0 (r2) |
+| Sundial | THUML | `thuml/sundial-base-128m` | 3.10–3.12 | Apache-2.0 |
+| T0 | The Forecasting Company | `theforecastingcompany/t0-alpha` | 3.11–3.13 | Apache-2.0† |
+| TabPFN | Prior Labs | `tabpfn-v2-regressor-2noar4o2.ckpt` | 3.10–3.12 | TabPFN NC |
+| Tafsut | Tafsut | `Tafsut-FM/tafsut-univariate-base` | 3.10+ | MIT |
+| TiRex | NX-AI | `NX-AI/TiRex` | 3.11+ | Community / Apache-2.0 |
+| TimeGPT | Nixtla | `timegpt-1` | 3.10+ | Nixtla API |
+| TimesFM | Google | `google/timesfm-1.0-200m-pytorch` | 3.10+ | Apache-2.0 |
+| Toto | Datadog | `Datadog/Toto-Open-Base-1.0` | 3.10+ | Apache-2.0 |
+
+Pass any HuggingFace `repo_id` (or local checkpoint path) supported by the underlying model class.
+
+---
+
+## Model Details
+
+### Chronos
+
+Chronos (Amazon, [arXiv:2403.07815](https://arxiv.org/abs/2403.07815)) is a language model pre-trained on a large corpus of time series data through tokenization of real-valued observations.
+
+**Available checkpoints**
+
+```
+amazon/chronos-t5-tiny
+amazon/chronos-t5-mini
+amazon/chronos-t5-small
+amazon/chronos-t5-base
+amazon/chronos-t5-large
+amazon/chronos-bolt-tiny
+amazon/chronos-bolt-mini
+amazon/chronos-bolt-small
+amazon/chronos-bolt-base
+amazon/chronos-2
+```
+
+**Exogenous support:** Native known-future covariates (`X_df`) are supported when using `amazon/chronos-2`. Earlier Chronos-T5 and Chronos-Bolt checkpoints do not accept `X_df` under the default `exog_strategy`.
+
+**Finetuning:** Chronos supports inference-time finetuning via `finetuning_config`. Note that when `finetuning_config` is set, the model is mutated during `forecast()` and model weights are not cached.
+
+---
+
+### FlowState
+
+FlowState (IBM, [arXiv:2508.05287](https://arxiv.org/abs/2508.05287)) is a flow-matching foundation model for time series. Requires **Python 3.11–3.13**.
+
+**Available checkpoints**
+
+```
+ibm-research/flowstate
+ibm-granite/granite-timeseries-flowstate-r1
+```
+
+---
+
+### Moirai
+
+Moirai (Salesforce, [arXiv:2402.02592](https://arxiv.org/abs/2402.02592)) is a universal forecasting transformer trained on the LOTSA dataset.
+
+**Available checkpoints**
+
+```
+Salesforce/moirai-1.0-R-small
+Salesforce/moirai-1.0-R-base
+Salesforce/moirai-1.0-R-large
+Salesforce/moirai-1.1-R-small
+Salesforce/moirai-1.1-R-base
+Salesforce/moirai-1.1-R-large
+Salesforce/moirai-2.0-R-small
+Salesforce/moirai-2.0-R-base
+Salesforce/moirai-2.0-R-large
+Salesforce/moirai-moe-1.0-R-small
+Salesforce/moirai-moe-1.0-R-base
+```
+
+<Warning>
+  Moirai weights are licensed under **CC-BY-NC-4.0** (non-commercial only). Do
+  not use these checkpoints in revenue-generating production without a separate
+  agreement from Salesforce.
+</Warning>
+
+---
+
+### PatchTST-FM
+
+PatchTST-FM (IBM, [arXiv:2602.06909](https://arxiv.org/abs/2602.06909)) is a patching-based transformer foundation model. Requires **Python 3.11–3.13**.
+
+**Available checkpoints**
+
+```
+ibm-research/patchtst-fm-r1
+ibm-granite/granite-timeseries-patchtst-fm-r1
+ibm-granite/granite-timeseries-patchtst-fm-r2
+```
+
+<Warning>
+  The `r1` checkpoints (`ibm-research/patchtst-fm-r1` and
+  `ibm-granite/granite-timeseries-patchtst-fm-r1`) are licensed under
+  **CC-BY-NC-SA-4.0** (non-commercial only). The Granite r2 checkpoint
+  (`ibm-granite/granite-timeseries-patchtst-fm-r2`) is licensed under
+  **Apache-2.0 / OpenMDW 1.0** and is commercial-friendly. The r2 checkpoint
+  requires `granite-tsfm>=0.3.9`.
+</Warning>
+
+---
+
+### Sundial
+
+Sundial (THUML, [arXiv:2502.00816](https://arxiv.org/abs/2502.00816)) is a diffusion-based foundation model for time series forecasting.
+
+**Available checkpoints**
+
+```
+thuml/sundial-base-128m
+```
+
+---
+
+### T0
+
+T0 (The Forecasting Company) is a proprietary foundation model available through gated HuggingFace repositories.
+
+**Available checkpoints**
+
+```
+theforecastingcompany/t0-alpha
+theforecastingcompany/t0-beta
+```
+
+**Exogenous support:** Both `t0-alpha` and `t0-beta` support native known-future covariates via `X_df`.
+
+<Note>
+  T0 checkpoints are **gated on HuggingFace**. You must accept the model terms
+  on HuggingFace and set the `HF_TOKEN` environment variable before use.
+  `t0-beta` additionally requires `tfc-t0>=0.5.0`.
+</Note>
+
+---
+
+### TabPFN
+
+TabPFN (Prior Labs, [arXiv:2501.02945](https://arxiv.org/abs/2501.02945)) applies a tabular prior-fitted network to time series forecasting. Requires **Python 3.10–3.12**.
+
+**Available checkpoints**
+
+- **TabPFN-2 (default):** `tabpfn-v2-regressor-2noar4o2.ckpt`
+- **TabPFN-3:** pass `model_path="tabpfn-v3-regressor-v3_20260506_timeseries.ckpt"`; TabPFN-3 is LOCAL mode only.
+
+<Warning>
+  **TabPFN NC license:** TabPFN-2.6+ and TabPFN-3 weights are **non-commercial**.
+  Production use requires a [Prior Labs commercial license or API](https://docs.priorlabs.ai/models).
+  First LOCAL use requires accepting terms at [ux.priorlabs.ai](https://ux.priorlabs.ai)
+  and setting the `TABPFN_TOKEN` environment variable.
+</Warning>
+
+---
+
+### Tafsut
+
+Tafsut ([GitHub](https://github.com/Tafsut-FM/tafsut)) is a univariate foundation model distributed under the MIT license.
+
+**Available checkpoints**
+
+```
+Tafsut-FM/tafsut-univariate-base
+```
+
+---
+
+### TiRex
+
+TiRex (NX-AI, [arXiv:2505.23719](https://arxiv.org/abs/2505.23719)) and TiRex-2 ([arXiv:2607.01204](https://arxiv.org/abs/2607.01204)) are transformer-based foundation models from NX-AI. Requires **Python 3.11+**.
+
+**Available checkpoints**
+
+```
+NX-AI/TiRex
+NX-AI/TiRex-2
+```
+
+**Exogenous support:** Native known-future covariates (`X_df`) are supported on `NX-AI/TiRex-2` and other `TiRex-2-*` checkpoints. TiRex 1.0 does not accept `X_df`.
+
+<Warning>
+  **TiRex 1.0** (`NX-AI/TiRex`) uses the [NXAI Community
+  License](https://huggingface.co/NX-AI/TiRex/blob/main/LICENSE), which
+  imposes commercial limits for large enterprises. **TiRex-2** (`NX-AI/TiRex-2`)
+  is licensed under **Apache-2.0** and is commercial-friendly.
+</Warning>
+
+---
+
+### TimeGPT
+
+TimeGPT (Nixtla, [arXiv:2310.03589](https://arxiv.org/abs/2310.03589)) is a hosted API model. Unlike other models in the hub, it does not load local weights.
+
+**Available model IDs** (passed via the `model=` argument to `TimeGPT()`)
+
+```
+timegpt-1
+timegpt-1-long-horizon
+timegpt-2-mini
+timegpt-2
+timegpt-2-pro
+```
+
+**Exogenous support:** TimeGPT natively supports known-future covariates (`X_df`) on all model IDs.
+
+**Finetuning:** TimeGPT supports inference-time finetuning.
+
+<Note>
+  TimeGPT is a **hosted API service** and requires a `NIXTLA_API_KEY`
+  environment variable. Production use is subject to
+  [Nixtla terms and pricing](https://www.nixtla.io/docs). No weights are
+  downloaded or cached locally.
+</Note>
+
+---
+
+### TimesFM
+
+TimesFM (Google, [arXiv:2310.10688](https://arxiv.org/abs/2310.10688)) is a patching-based large language model pre-trained on 100 billion time points.
+
+**Available checkpoints**
+
+```
+google/timesfm-1.0-200m-pytorch
+google/timesfm-2.0-500m-pytorch
+google/timesfm-2.5-200m-pytorch
+google/timesfm-3.0-pytorch
+```
+
+**Exogenous support:** Native known-future covariates (`X_df`) are supported on `google/timesfm-3.0-pytorch` only. Earlier checkpoints do not accept `X_df`.
+
+<Warning>
+  The **TimesFM 3.0** weights (`google/timesfm-3.0-pytorch`) are licensed for
+  **non-commercial use only**. TimesFM 1.0, 2.0, and 2.5 checkpoints remain
+  Apache-2.0 and are commercial-friendly.
+</Warning>
+
+---
+
+### Toto
+
+Toto (Datadog, [arXiv:2505.14766](https://arxiv.org/abs/2505.14766)) is a decoder-only foundation model trained on trillions of observability time series data points.
+
+**Available checkpoints**
+
+```
+Datadog/Toto-Open-Base-1.0
+Datadog/Toto-2.0-4m
+Datadog/Toto-2.0-22m
+Datadog/Toto-2.0-313m
+Datadog/Toto-2.0-1B
+Datadog/Toto-2.0-2.5B
+```
+
+---
+
+## License Summary
+
+<CardGroup cols={2}>
+  <Card title="Commercial-friendly" icon="check">
+    Apache-2.0 and MIT models are generally safe for commercial production.
+    Retain original notices. T0 (†) is also Apache-2.0 but requires accepting
+    HuggingFace gated terms and setting `HF_TOKEN`.
+  </Card>
+  <Card title="Non-commercial only" icon="ban">
+    **Moirai** (CC-BY-NC-4.0), **PatchTST-FM r1** (CC-BY-NC-SA-4.0), and
+    **TimesFM 3.0** weights must not be used in revenue-generating production
+    without a separate license from the rights holder.
+  </Card>
+  <Card title="Requires separate agreement" icon="file-contract">
+    **TabPFN** (NC‡): production use of TabPFN-2.6+ or TabPFN-3 requires a
+    Prior Labs commercial license. **TiRex 1.0**: NXAI Community License
+    restricts large-enterprise commercial use. **TimeGPT**: hosted API under
+    Nixtla terms.
+  </Card>
+  <Card title="FoundationForecast itself" icon="shield-check">
+    The **FoundationForecast** library is Apache-2.0 regardless of which model
+    you use. Model weight licenses are independent of the SDK license.
+  </Card>
+</CardGroup>

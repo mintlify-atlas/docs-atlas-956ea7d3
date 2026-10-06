@@ -1,0 +1,186 @@
+---
+title: "Chronos Model API Reference"
+sidebarTitle: "Chronos"
+description: "API reference for the Chronos and ChronosFinetuningConfig classes. Supports 12 checkpoints from Amazon, including Chronos-2 with native exogenous variable support."
+---
+
+Chronos is Amazon's family of pre-trained probabilistic time series forecasting models. Built on a language model backbone (T5), Chronos tokenizes real-valued time series into discrete bins and trains a seq2seq transformer to predict future tokens. The family spans eight orders of magnitude in size—from the 8M-parameter `chronos-t5-tiny` up to the 710M `chronos-t5-large`—plus the faster Chronos-Bolt distilled variants and the newer Chronos-2 series, which adds native support for exogenous (covariate) variables and on-the-fly finetuning.
+
+## Import
+
+```python
+from foundationforecast.models import Chronos, ChronosFinetuningConfig
+```
+
+---
+
+## `Chronos`
+
+```python
+Chronos(
+    repo_id="amazon/chronos-t5-large",
+    batch_size=16,
+    alias="Chronos",
+    dtype=torch.float32,
+    finetuning_config=None,
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+The `Chronos` class wraps all Amazon Chronos checkpoints—T5, Bolt, and Chronos-2—through a single interface. The correct pipeline type (`ChronosPipeline`, `ChronosBoltPipeline`, or `Chronos2Pipeline`) is selected automatically based on `repo_id`. The model is loaded onto a CUDA GPU when one is available, falling back to CPU otherwise.
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default="amazon/chronos-t5-large">
+  HuggingFace Hub model ID or local path to load the Chronos model from. You can also pass the path where a finetuned model was saved (see `ChronosFinetuningConfig.save_path`), then use that path as `repo_id` with `finetuning_config=None` to reuse the saved weights.
+
+  See the [full checkpoint table](#available-checkpoints) below.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="16">
+  Batch size used for inference only. Larger models may require a smaller value due to GPU memory constraints. For Chronos-Bolt models, larger batch sizes (e.g. `256`) are feasible. When finetuning, use `ChronosFinetuningConfig.batch_size` to set the training batch size independently.
+</ParamField>
+
+<ParamField path="alias" type="str" default="Chronos">
+  Name used for this model in output DataFrame columns and logs. Set a custom value when running multiple models together to distinguish their forecasts.
+</ParamField>
+
+<ParamField path="dtype" type="torch.dtype" default="torch.float32">
+  Data type for model weights and input tensors. Defaults to `torch.float32` for full numerical precision. Use `torch.bfloat16` to reduce GPU memory usage on supported hardware (Ampere-class GPUs or newer).
+</ParamField>
+
+<ParamField path="finetuning_config" type="ChronosFinetuningConfig | None" default="None">
+  When provided, the model is finetuned on the context data in `df` before generating predictions. The forecast horizon `h` from `forecast(df, h, ...)` is used as `prediction_length` for the internal `fit()` call. See [`ChronosFinetuningConfig`](#chronosfinetuningconfig) for full parameter details.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True`, loaded checkpoint weights are kept in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call, which reduces peak memory at the cost of reload latency. **Ignored** when `finetuning_config` is set (finetuned models are never cached).
+</ParamField>
+
+<ParamField path="exog_strategy" type='"auto" | False' default='"auto"'>
+  Controls how exogenous variables in `X_df` are handled. Under `"auto"`, native exog is used when the checkpoint supports it (i.e. `repo_id` contains `chronos-2`); otherwise the strategy falls back gracefully. Set to `False` to disable exog handling entirely, which is useful when mixing Chronos with other models in a `FoundationForecast` run.
+</ParamField>
+
+### Exogenous variable support
+
+<Note>
+  Native `X_df` support is only available on **Chronos-2** checkpoints. A `repo_id` supports exogenous variables if and only if the string `"chronos-2"` (case-insensitive) appears in it—for example `amazon/chronos-2`, `autogluon/chronos-2-synth`, or `autogluon/chronos-2-small`. All T5 and Bolt checkpoints ignore `X_df` under the default `exog_strategy="auto"`.
+</Note>
+
+### Available checkpoints
+
+| Model ID | Parameters |
+|---|---|
+| `amazon/chronos-2` | 120M |
+| `autogluon/chronos-2-synth` | 120M |
+| `autogluon/chronos-2-small` | 28M |
+| `amazon/chronos-bolt-tiny` | 9M |
+| `amazon/chronos-bolt-mini` | 21M |
+| `amazon/chronos-bolt-small` | 48M |
+| `amazon/chronos-bolt-base` | 205M |
+| `amazon/chronos-t5-tiny` | 8M |
+| `amazon/chronos-t5-mini` | 20M |
+| `amazon/chronos-t5-small` | 46M |
+| `amazon/chronos-t5-base` | 200M |
+| `amazon/chronos-t5-large` | 710M |
+
+<Tip>
+  The Chronos-Bolt models (`chronos-bolt-*`) are knowledge-distilled from their T5 counterparts and are significantly faster at inference time, making them a good default choice when latency matters.
+</Tip>
+
+### Basic usage
+
+```python
+import pandas as pd
+from foundationforecast.models import Chronos
+
+model = Chronos(repo_id="amazon/chronos-bolt-base", batch_size=64)
+
+df = pd.read_csv("timeseries.csv", parse_dates=["ds"])
+fcst_df = model.forecast(df=df, h=24, level=[80, 95])
+print(fcst_df)
+```
+
+---
+
+## `ChronosFinetuningConfig`
+
+```python
+ChronosFinetuningConfig(
+    finetune_steps=1000,
+    learning_rate=None,
+    batch_size=None,
+    finetune_mode=None,
+    lora_config=None,
+    save_path=None,
+)
+```
+
+Dataclass that configures finetuning for a Chronos pipeline before forecasting. Pass an instance to `Chronos(finetuning_config=...)`. When `forecast()` is called, parameters are forwarded to the underlying pipeline's `fit()` method, with `finetune_steps` mapped to `num_steps`.
+
+<Note>
+  Finetuning is based on the [Chronos-2 quickstart notebook](https://github.com/amazon-science/chronos-forecasting/blob/main/notebooks/chronos-2-quickstart.ipynb). Finetuning is only supported on Chronos-2 checkpoints (`amazon/chronos-2`, `autogluon/chronos-2-*`).
+</Note>
+
+### Parameters
+
+<ParamField path="finetune_steps" type="int" default="1000">
+  Number of gradient-update steps to train the model. Passed to the pipeline as `num_steps`. Defaults to 1000.
+</ParamField>
+
+<ParamField path="learning_rate" type="float | None" default="None">
+  Optimizer learning rate. When `None`, the Chronos library uses its own default of `1e-6`. For LoRA finetuning (`finetune_mode="lora"`), a value of `1e-5` is recommended.
+</ParamField>
+
+<ParamField path="batch_size" type="int | None" default="None">
+  Training batch size, independent of the inference `batch_size` on the `Chronos` constructor. When `None`, the Chronos library defaults to `256`.
+</ParamField>
+
+<ParamField path="finetune_mode" type='"full" | "lora" | None' default="None">
+  Finetuning strategy. `"full"` updates all model parameters; `"lora"` uses low-rank adaptation for a parameter-efficient update. When `None`, the library defaults to `"full"`.
+</ParamField>
+
+<ParamField path="lora_config" type="Any | None" default="None">
+  LoRA configuration object passed through to the pipeline when `finetune_mode="lora"`. Consult the [Chronos-2 quickstart](https://github.com/amazon-science/chronos-forecasting/blob/main/notebooks/chronos-2-quickstart.ipynb) for the expected structure.
+</ParamField>
+
+<ParamField path="save_path" type="str | Path | None" default="None">
+  Directory where the finetuned model is saved after training. When set, use this same path as `repo_id` in a subsequent `Chronos(repo_id=save_path, finetuning_config=None)` call to reuse the saved weights without re-finetuning.
+</ParamField>
+
+### Finetuning example
+
+```python
+from foundationforecast.models import Chronos, ChronosFinetuningConfig
+
+# Finetune a Chronos-2 model with LoRA and save the result
+model = Chronos(
+    repo_id="amazon/chronos-2",
+    finetuning_config=ChronosFinetuningConfig(
+        finetune_steps=200,
+        finetune_mode="lora",
+        learning_rate=1e-5,
+        save_path="./finetuned-chronos",
+    ),
+)
+fcst_df = model.forecast(df=df, h=24)
+
+# Later: reload the finetuned model without re-finetuning
+model2 = Chronos(repo_id="./finetuned-chronos", finetuning_config=None)
+fcst_df2 = model2.forecast(df=df, h=24)
+```
+
+<Warning>
+  The `batch_size` field on `ChronosFinetuningConfig` controls the **training** batch size. The `batch_size` argument on `Chronos(...)` controls **inference** batch size. They are independent and can be set differently.
+</Warning>
+
+---
+
+## License & references
+
+Chronos checkpoint weights on HuggingFace are released under **Apache-2.0**. FoundationForecast itself is also Apache-2.0.
+
+- **Paper:** [Chronos: Learning the Language of Time Series](https://arxiv.org/abs/2403.07815)
+- **GitHub:** [amazon-science/chronos-forecasting](https://github.com/amazon-science/chronos-forecasting)
+- **HuggingFace collection:** [amazon/chronos-models](https://huggingface.co/collections/amazon/chronos-models-65f1791d630a8d57cb718444)

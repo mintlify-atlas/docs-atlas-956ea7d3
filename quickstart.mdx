@@ -1,47 +1,182 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with FoundationForecast in 5 Minutes"
+sidebarTitle: "Quickstart"
+description: "Install FoundationForecast and run your first multi-model time series forecast with Chronos and Toto in under five minutes."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+FoundationForecast lets you run multiple pretrained time series foundation models side-by-side with a single class and a single DataFrame. This guide walks you from a fresh Python environment to a working multi-model forecast, cross-validation run, and anomaly detection result — all in about five minutes.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
 
-    ```bash
-    npm install your-package
-    ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+  <Step title="Install FoundationForecast">
 
-    ```bash
-    your-cli init
-    ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+    Install the package from PyPI using pip or uv. [uv](https://docs.astral.sh/uv/) is recommended: it installs faster, locks dependencies reproducibly, and handles the heavy ML stack (torch, transformers) especially well.
 
-    ```bash
-    your-cli start
+    <CodeGroup>
+
+    ```bash pip
+    pip install foundationforecast
     ```
+
+    ```bash uv
+    uv add foundationforecast
+    ```
+
+    </CodeGroup>
+
+    FoundationForecast requires **Python 3.10 or later**. Some models have narrower version requirements — see [Installation](/installation) for the full breakdown.
+
   </Step>
+
+  <Step title="Prepare your data">
+
+    Every method in FoundationForecast expects a pandas DataFrame with three columns. No reformatting utilities, no custom containers — just a standard DataFrame.
+
+    <Note>
+      Your DataFrame must have exactly these columns: **`unique_id`** (string series identifier), **`ds`** (timestamp — pass `parse_dates=["ds"]` when reading CSVs, or use ISO-8601 strings), and **`y`** (numeric target value). Sorting and frequency inference happen automatically.
+    </Note>
+
+    ```python
+    import pandas as pd
+
+    df = pd.read_csv(
+        "https://timecopilot.s3.amazonaws.com/public/data/entsoe_4markets_8w.csv",
+        parse_dates=["ds"],
+    )
+
+    print(df.head())
+    #   unique_id          ds       y
+    # 0    DE_LU  2024-01-01  58.32
+    # 1    DE_LU  2024-01-02  61.47
+    # ...
+    ```
+
+    The sample dataset contains hourly electricity prices for four ENTSO-E markets over eight weeks. It is a great starting point because it has multiple series (`unique_id` takes four distinct values), so you can see how FoundationForecast handles panel data out of the box.
+
+  </Step>
+
+  <Step title="Create a FoundationForecast">
+
+    Instantiate `FoundationForecast` with a list of model objects. Each model takes model-specific arguments (such as which Hugging Face checkpoint to load) and an optional `alias` that becomes the column name in forecast output.
+
+    ```python
+    from foundationforecast import FoundationForecast
+    from foundationforecast.models import Chronos, Toto
+
+    ff = FoundationForecast(
+        models=[
+            Chronos(repo_id="amazon/chronos-bolt-tiny", alias="Chronos"),
+            Toto(context_length=512, alias="Toto"),
+        ]
+    )
+    ```
+
+    <Tip>
+      `alias` is optional but highly recommended when running multiple models — it gives each model a human-readable name in the output columns. Without it, FoundationForecast generates names automatically. Every alias in a single `FoundationForecast` instance must be unique.
+    </Tip>
+
+    Model weights are downloaded from Hugging Face on first use and cached locally. GPU is used automatically if available.
+
+  </Step>
+
+  <Step title="Run a forecast">
+
+    Call `ff.forecast()` with your DataFrame, a forecast horizon `h`, and an optional list of coverage levels for prediction intervals.
+
+    ```python
+    fcst_df = ff.forecast(df, h=24, level=[90])
+    ```
+
+    `h=24` requests 24 steps ahead (one day of hourly forecasts for this dataset). `level=[90]` adds 90% prediction interval columns alongside each model's point forecast. You can pass multiple levels, e.g. `level=[80, 90, 95]`.
+
+    You can also run **cross-validation** (sliding-window backtesting) and **anomaly detection** with the same interface:
+
+    ```python
+    cv_df = ff.cross_validation(df, h=24, level=[90])
+    anomalies_df = ff.detect_anomalies(df, level=99)
+    ```
+
+  </Step>
+
+  <Step title="Explore results">
+
+    `ff.forecast()` returns a tidy DataFrame. Each row corresponds to one future timestamp for one series. Point forecast and interval columns are named after the model's alias.
+
+    ```python
+    print(fcst_df.columns.tolist())
+    # ['unique_id', 'ds', 'Chronos', 'Chronos-lo-90', 'Chronos-hi-90',
+    #  'Toto', 'Toto-lo-90', 'Toto-hi-90']
+
+    print(fcst_df.head())
+    #   unique_id          ds    Chronos  Chronos-lo-90  Chronos-hi-90     Toto  Toto-lo-90  Toto-hi-90
+    # 0    DE_LU  2024-03-04    61.2          52.1          73.8         59.8       50.4        69.1
+    # ...
+    ```
+
+    Column naming follows the pattern `{alias}-lo-{level}` and `{alias}-hi-{level}` for interval bounds. When you pass `quantiles=` instead of `level=`, columns use the `-q-{value}` suffix (e.g. `Chronos-q-5`, `Chronos-q-95`).
+
+  </Step>
+
+  <Step title="Plot your forecast">
+
+    `ff.plot()` overlays historical data and the forecasts from all models on a single chart — one subplot per series. It uses the same DataFrame objects you already have.
+
+    ```python
+    ff.plot(df=df, forecasts_df=fcst_df)
+    ```
+
+    <Note>
+      `ff.plot()` requires the optional plotting extras. Install them with `pip install "foundationforecast[plot]"` or `uv add "foundationforecast[plot]"`.
+    </Note>
+
+    The chart automatically renders prediction intervals as shaded bands when interval columns are present in `forecasts_df`.
+
+  </Step>
+
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Complete example
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+Here is the full working script from the steps above, all together:
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, Toto
+
+# 1. Load data — must have unique_id, ds, y columns
+df = pd.read_csv(
+    "https://timecopilot.s3.amazonaws.com/public/data/entsoe_4markets_8w.csv",
+    parse_dates=["ds"],
+)
+
+# 2. Instantiate with your chosen models
+ff = FoundationForecast(
+    models=[
+        Chronos(repo_id="amazon/chronos-bolt-tiny", alias="Chronos"),
+        Toto(context_length=512, alias="Toto"),
+    ]
+)
+
+# 3. Forecast 24 steps ahead with 90% prediction intervals
+fcst_df = ff.forecast(df, h=24, level=[90])
+
+# 4. Sliding-window cross-validation
+cv_df = ff.cross_validation(df, h=24, level=[90])
+
+# 5. Anomaly detection at the 99% confidence level
+anomalies_df = ff.detect_anomalies(df, level=99)
+
+# 6. Plot (requires foundationforecast[plot])
+ff.plot(df=df, forecasts_df=fcst_df)
+```
+
+## What's next?
+
+Now that you have a working forecast, explore these guides to go deeper:
+
+- **[Installation](/installation)** — Python version requirements, API keys for TimeGPT and TabPFN, and local development setup.
+- **[Exogenous Variables](/guides/exogenous-variables)** — pass known-future covariates like prices or weather to supported models using `X_df`.
+- **[Model Hub](/models/model-hub)** — browse all 12 models, their available checkpoints, and capability flags.
+- **[Cross-Validation](/guides/cross-validation)** — configure sliding windows and compute accuracy metrics.
+- **[Anomaly Detection](/guides/anomaly-detection)** — tune the `level` parameter and interpret the `anomaly` column.

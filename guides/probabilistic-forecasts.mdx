@@ -1,0 +1,198 @@
+---
+title: "Probabilistic Forecasting with Prediction Intervals and Quantiles"
+sidebarTitle: "Probabilistic Forecasts"
+description: "Request prediction intervals via the level parameter or direct quantile forecasts via quantiles. Covers output column naming, interpolation, and edge clamping."
+---
+
+Foundation models in FoundationForecast can produce more than a single point forecast — you can request full probability distributions expressed as prediction intervals or explicit quantiles. This guide covers the two probabilistic APIs (`level` and `quantiles`), explains how output columns are named, and describes the interpolation and edge-clamping behaviour that applies to fixed-knot models.
+
+## Two mutually exclusive modes
+
+FoundationForecast exposes two ways to request probabilistic output on `forecast()` and `cross_validation()`. You must choose one or the other — passing both raises a `ValueError`.
+
+<CardGroup cols={2}>
+  <Card title="level — prediction intervals" icon="brackets-curly">
+    Pass integer confidence percentages. Get symmetric lower and upper bound columns. Best when you want to say "80% of future values should fall in this range."
+  </Card>
+  <Card title="quantiles — direct quantile forecasts" icon="sliders">
+    Pass quantile levels in (0, 1). Get one column per quantile. Best when you need specific percentiles (e.g. the 10th and 90th for an asymmetric risk assessment).
+  </Card>
+</CardGroup>
+
+The **point forecast** is always returned in the `{model}` column regardless of which mode you use.
+
+---
+
+## `level` — prediction intervals
+
+Pass a list of **integer** confidence percentages, e.g. `[80, 95]`. Fractional levels (e.g. `95.5`) are not supported.
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos
+
+ff = FoundationForecast(models=[Chronos()])
+fcst_df = ff.forecast(df=df, h=12, freq="MS", level=[80, 95])
+```
+
+### How levels map to quantiles
+
+Each level `L` is converted to a symmetric pair of quantiles:
+
+```
+α     = 1 − L/100
+q_lo  = α / 2
+q_hi  = 1 − α / 2
+```
+
+| Level | α | Lower quantile | Upper quantile |
+|-------|---|---------------|---------------|
+| 80 | 0.20 | 0.10 | 0.90 |
+| 90 | 0.10 | 0.05 | 0.95 |
+| 95 | 0.05 | 0.025 | 0.975 |
+| 99 | 0.01 | 0.005 | 0.995 |
+
+### Output column naming for `level`
+
+Each level `L` produces two extra columns per model:
+
+| Column | Description |
+|--------|-------------|
+| `{model}-lo-{L}` | Lower bound (the `q_lo` quantile) |
+| `{model}-hi-{L}` | Upper bound (the `q_hi` quantile) |
+
+```python
+print(fcst_df.columns.tolist())
+# ['unique_id', 'ds',
+#  'Chronos',
+#  'Chronos-lo-80', 'Chronos-hi-80',
+#  'Chronos-lo-95', 'Chronos-hi-95']
+```
+
+---
+
+## `quantiles` — direct quantile forecasts
+
+Pass a list of quantile levels in the open interval `(0, 1)`. Each value may have **at most three decimal places** (i.e. `1000 × q` must be an integer). Two distinct quantiles that map to the same output suffix are rejected with a `ValueError`.
+
+```python
+fcst_df = ff.forecast(df=df, h=12, freq="MS", quantiles=[0.1, 0.5, 0.9])
+```
+
+### Output column naming for `quantiles`
+
+Each quantile `q` produces one extra column per model:
+
+```
+column name = {model}-q-{pct}
+```
+
+where `pct` is the minimal decimal text for `100 × q` — trailing zeros are dropped:
+
+| Quantile | `pct` | Column |
+|----------|-------|--------|
+| `0.1` | `10` | `Chronos-q-10` |
+| `0.15` | `15` | `Chronos-q-15` |
+| `0.151` | `15.1` | `Chronos-q-15.1` |
+| `0.9` | `90` | `Chronos-q-90` |
+| `0.5` | — | `Chronos` (point forecast column) |
+
+<Note>
+  The median (`q=0.5`) is not returned as a separate `-q-50` column — it is the point forecast and appears in the main `{model}` column.
+</Note>
+
+```python
+print(fcst_df.columns.tolist())
+# ['unique_id', 'ds', 'Chronos', 'Chronos-q-10', 'Chronos-q-90']
+```
+
+---
+
+## Multi-model probabilistic forecasts
+
+Both modes work seamlessly across multiple models in `FoundationForecast`:
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, TimesFM
+
+ff = FoundationForecast(
+    models=[
+        Chronos(alias="Chronos"),
+        TimesFM(alias="TimesFM"),
+    ]
+)
+
+fcst_df = ff.forecast(df=df, h=12, freq="MS", level=[80, 95])
+print(fcst_df.columns.tolist())
+# ['unique_id', 'ds',
+#  'Chronos', 'Chronos-lo-80', 'Chronos-hi-80', 'Chronos-lo-95', 'Chronos-hi-95',
+#  'TimesFM', 'TimesFM-lo-80', 'TimesFM-hi-80', 'TimesFM-lo-95', 'TimesFM-hi-95']
+```
+
+---
+
+## Interpolation on fixed-knot models
+
+Some foundation models predict a fixed internal set of quantile **knots** rather than sampling freely. For these models, any requested level or quantile that does not exactly match a native knot is resolved by **linear interpolation** between adjacent knots.
+
+Fixed-knot models in FoundationForecast include:
+
+- TiRex, TimesFM, TabPFN, FlowState, Tafsut, Toto 2.0
+
+For example, if a model's native knots are `[0.1, 0.2, ..., 0.9]` and you request `level=[95]` (which maps to quantiles `0.025` and `0.975`), the library interpolates between the two nearest knots to approximate those values.
+
+```python
+# Requesting a level outside native knots triggers interpolation
+fcst_df = ff.forecast(df=df, h=12, freq="MS", level=[95])
+# Works — the library interpolates between the model's fixed native knots
+```
+
+---
+
+## Edge clamping
+
+When a requested quantile falls **outside** the range that a model supports (below the minimum or above the maximum native knot), FoundationForecast clamps it to the nearest in-range knot. It does **not** extrapolate.
+
+<Warning>
+  Edge clamping means the returned values for out-of-range quantiles are identical to the boundary knot's forecast. Output column names still reflect your original request — for example, `{model}-lo-95` is returned even if the model's minimum native knot is `0.1` (corresponding to `level=80`). Inspect the values to detect clamping.
+</Warning>
+
+### Example: clamped columns on a model with knots 0.1–0.9
+
+| Request | Resolved quantile | Column name | Notes |
+|---------|------------------|-------------|-------|
+| `level=[80]` | 0.10 / 0.90 | `Model-lo-80`, `Model-hi-80` | Exact match — no clamping |
+| `level=[95]` | 0.025 / 0.975 | `Model-lo-95`, `Model-hi-95` | Clamped to 0.10 / 0.90 |
+| `quantiles=[0.01]` | 0.01 | `Model-q-1` | Clamped to 0.10 |
+
+---
+
+## Model-by-model probabilistic output
+
+Different model families produce probabilistic forecasts through different mechanisms:
+
+| Mechanism | Examples | Behaviour |
+|-----------|----------|-----------|
+| **Sampling** | Chronos (T5-based) | Draws multiple sample paths; intervals estimated from sample distribution |
+| **Fixed native knots** | TiRex, TimesFM, TabPFN, FlowState, Tafsut, Toto 2.0 | Model outputs fixed quantiles; library interpolates/clamps to your request |
+| **Hosted API intervals** | TimeGPT | Prediction intervals returned natively by the Nixtla API |
+| **Native quantile head** | T0, PatchTST-FM | Model supports direct quantile output; clamps to documented range |
+
+---
+
+## Combining probabilistic forecasts with cross-validation
+
+Use `level` or `quantiles` in `cross_validation()` to evaluate interval calibration:
+
+```python
+cv_df = ff.cross_validation(df=df, h=12, freq="MS", n_windows=3, level=[80, 95])
+
+# Empirical coverage: fraction of actuals inside the 80% band
+in_80 = (cv_df["y"] >= cv_df["Chronos-lo-80"]) & (cv_df["y"] <= cv_df["Chronos-hi-80"])
+print(f"Empirical 80% coverage: {in_80.mean():.1%}")
+```
+
+<Tip>
+  A well-calibrated model should have empirical coverage close to the nominal level (e.g. ~80% of actuals inside the 80% band). Systematic under- or over-coverage suggests the model's uncertainty estimates are too narrow or too wide for your data.
+</Tip>

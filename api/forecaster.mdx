@@ -1,0 +1,231 @@
+---
+title: "Forecaster Base Class API Reference"
+sidebarTitle: "Forecaster"
+description: "API reference for the Forecaster and ExogCapableForecaster base classes — the foundation for all model wrappers in FoundationForecast."
+---
+
+All model wrappers in FoundationForecast — including `Chronos`, `Toto`, `TimesFM`, `TimeGPT`, `Moirai`, and others — extend either `Forecaster` or `ExogCapableForecaster`. This page documents the shared interface: the constructor options that control caching and exog handling, the static validation helper, the cache-management utilities, and the frequency inference functions that underpins all built-in models.
+
+```python
+from foundationforecast.core.forecaster import Forecaster
+```
+
+---
+
+## Constructor
+
+```python
+Forecaster(*, reuse_loaded_model=True, exog_strategy="auto")
+```
+
+All parameters are keyword-only. Individual model wrappers (e.g. `Chronos(...)`) pass these through to `Forecaster.__init__`, so you can set them on any concrete model class.
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True` (default), loaded checkpoint weights are stored in the process-wide LRU cache and reused across `forecast()` calls, avoiding repeated disk I/O and model initialisation.
+  Set to `False` to load weights fresh on every call and release them immediately after — useful when memory is constrained and calls are infrequent.
+  The size of the cache is controlled globally by `set_max_cached_models()`.
+</ParamField>
+
+<ParamField path="exog_strategy" type='"auto" | False' default='"auto"'>
+  Controls how known-future exogenous variables (`X_df` / `futr_df`) are handled when passed to `forecast()`.
+
+  - `"auto"` — uses the model's native exog API when the loaded checkpoint supports it; raises a `ValueError` if `X_df` is provided but native exog is unavailable for that checkpoint.
+  - `False` — ignores `X_df` and `futr_exog_list` entirely and runs a univariate forecast. Applies in both `forecast()` and `cross_validation()`.
+</ParamField>
+
+### Example
+
+```python
+from foundationforecast import Chronos
+
+# Disable caching and skip exog even if X_df is passed
+model = Chronos(reuse_loaded_model=False, exog_strategy=False)
+forecasts = model.forecast(df, h=12, freq="MS")
+```
+
+---
+
+## validate_input()
+
+```python
+Forecaster.validate_input(df, h)
+```
+
+Static method. Validates that `df` is a well-formed time series DataFrame and that `h` is a positive integer. Called automatically at the start of every `forecast()` and `cross_validation()` call — you only need to call it directly when building a custom forecaster subclass.
+
+<ParamField path="df" type="pd.DataFrame" required>
+  DataFrame to validate. Must be a `pd.DataFrame` instance containing the columns `unique_id`, `ds`, and `y`, and must have at least one row.
+</ParamField>
+
+<ParamField path="h" type="int | None" required>
+  Forecast horizon to validate. When not `None`, must be a positive integer (`h > 0`).
+  Pass `None` to skip horizon validation (used internally by `detect_anomalies()`).
+</ParamField>
+
+<Warning>
+  Raises `ValueError` if:
+  - `df` is not a `pd.DataFrame`
+  - any of `unique_id`, `ds`, or `y` are missing from `df.columns`
+  - `df` is empty
+  - `h` is not `None` and is not a positive integer
+</Warning>
+
+### Example
+
+```python
+import pandas as pd
+from foundationforecast.core.forecaster import Forecaster
+
+df = pd.DataFrame({
+    "unique_id": ["s1", "s1"],
+    "ds": pd.date_range("2024-01-01", periods=2, freq="MS"),
+    "y": [10.0, 12.5],
+})
+
+Forecaster.validate_input(df, h=6)  # passes silently
+Forecaster.validate_input(df, h=0)  # raises ValueError: h must be a positive integer
+```
+
+---
+
+## clear_model_cache()
+
+```python
+model.clear_model_cache()
+```
+
+Releases the cached checkpoint weights for this specific forecaster from the process-wide LRU cache. After this call, the next `forecast()` invocation will reload weights from disk.
+
+<Tip>
+  `FoundationForecast` calls `clear_model_cache()` automatically after each model when `clean_cache=True` is set on the ensemble. Call it manually on individual model instances when you need fine-grained control over GPU memory.
+</Tip>
+
+### Example
+
+```python
+from foundationforecast import Chronos
+
+model = Chronos()
+model.forecast(df, h=12)   # weights loaded and cached
+
+model.clear_model_cache()  # weights released from cache
+```
+
+---
+
+## supports_native_futr_exog()
+
+```python
+model.supports_native_futr_exog() -> bool
+```
+
+Returns `True` if this forecaster can use the model's native known-future exogenous API for its currently configured checkpoint, `False` otherwise.
+
+The base `Forecaster` implementation always returns `False`. Subclasses that implement native exog support (such as `Chronos`, `TimesFM`, `TimeGPT`, `T0`, and `TiRex`) override this method and return `True` for compatible checkpoints.
+
+<Note>
+  When `exog_strategy="auto"` and `supports_native_futr_exog()` returns `False`, passing `X_df` to `forecast()` raises a `ValueError` explaining that native exog is unavailable for the current checkpoint.
+  Set `exog_strategy=False` to suppress this error and run a univariate forecast instead.
+</Note>
+
+### Example
+
+```python
+from foundationforecast import Chronos, Toto
+
+print(Chronos().supports_native_futr_exog())  # True for exog-capable checkpoints
+print(Toto().supports_native_futr_exog())     # False — Toto is univariate-only
+```
+
+---
+
+## ExogCapableForecaster
+
+`ExogCapableForecaster` is a direct subclass of `Forecaster` that provides a complete `forecast()` implementation with full exog dispatch logic. Model wrappers that support known-future exogenous variables extend `ExogCapableForecaster` rather than `Forecaster` directly.
+
+```python
+from foundationforecast.core.forecaster import ExogCapableForecaster
+```
+
+The dispatch flow in `ExogCapableForecaster.forecast()` is:
+
+1. Call `validate_input(df, h)`.
+2. Inspect `X_df` / `futr_df` and the model's `exog_strategy`.
+3. If a horizon DataFrame is present and `exog_strategy` is not `False`, call `_forecast_native_futr_exog()` (must be overridden by the subclass) or apply a feature-engineering fallback.
+4. Otherwise, call `_forecast_univariate()` (must be overridden by the subclass).
+
+Concrete wrappers that extend `ExogCapableForecaster` include: **Chronos**, **TimesFM**, **TimeGPT**, **T0**, and **TiRex**.
+
+<Note>
+  If you are building a custom model wrapper that does **not** need exog support, extend `Forecaster` and implement `forecast()` directly. If you want exog dispatch handled for you, extend `ExogCapableForecaster` and implement `_forecast_univariate()` plus optionally `_forecast_native_futr_exog()`.
+</Note>
+
+---
+
+## Frequency inference helpers
+
+These module-level helpers are used internally by every forecaster but are also available for direct use in custom subclasses or data pipelines.
+
+### maybe_infer_freq()
+
+```python
+from foundationforecast.core.forecaster import maybe_infer_freq
+
+maybe_infer_freq(df, freq)
+```
+
+Returns `freq` unchanged if it is not `None`. Otherwise, infers the pandas frequency string from the most common series in `df` by calling `pd.infer_freq` on the sorted `ds` column.
+
+<ParamField path="df" type="pd.DataFrame" required>
+  Long-format time series DataFrame containing a `unique_id` column and a `ds` column.
+  The most frequently occurring `unique_id` is used as the representative series for frequency inference.
+</ParamField>
+
+<ParamField path="freq" type="str | None" required>
+  If already known, pass it here and it is returned as-is. Pass `None` to trigger inference.
+</ParamField>
+
+<Warning>
+  Raises `RuntimeError` if the frequency cannot be inferred — for example, when timestamps are irregular, duplicated, or missing. In that case, pass `freq` explicitly to `forecast()`.
+</Warning>
+
+### get_seasonality()
+
+```python
+from foundationforecast.core.forecaster import get_seasonality
+
+get_seasonality(freq, custom_seasonalities=None)
+```
+
+Returns the canonical seasonal period (as an integer) for a given pandas frequency string. Used by `detect_anomalies()` to choose a default `h` value when none is specified.
+
+Built-in seasonalities come from GluonTS `DEFAULT_SEASONALITIES` (e.g. `"D"` → 7, `"MS"` → 12, `"H"` → 24). Custom mappings take precedence over the defaults.
+
+<ParamField path="freq" type="str" required>
+  Pandas frequency string (e.g. `"H"`, `"D"`, `"W"`, `"MS"`, `"QS"`, `"Y"`).
+</ParamField>
+
+<ParamField path="custom_seasonalities" type="dict[str, int] | None" default="None">
+  Optional dictionary mapping frequency strings to integer seasonal periods.
+  Entries here override the GluonTS defaults for matching keys.
+</ParamField>
+
+### Example
+
+```python
+from foundationforecast.core.forecaster import maybe_infer_freq, get_seasonality
+import pandas as pd
+
+df = pd.DataFrame({
+    "unique_id": ["s1"] * 24,
+    "ds": pd.date_range("2024-01-01", periods=24, freq="MS"),
+    "y": range(24),
+})
+
+freq = maybe_infer_freq(df, freq=None)   # "MS"
+period = get_seasonality(freq)            # 12
+print(f"Inferred freq={freq}, seasonality={period}")
+
+# Override seasonality for a custom frequency
+period = get_seasonality("MS", custom_seasonalities={"MS": 6})  # 6
+```

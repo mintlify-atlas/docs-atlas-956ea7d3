@@ -1,0 +1,199 @@
+---
+title: "Evaluate Models with Rolling-Window Cross-Validation"
+sidebarTitle: "Cross-Validation"
+description: "Use cross_validation() to backtest foundation models over multiple rolling windows and measure forecast accuracy on held-out data."
+---
+
+Cross-validation is the most reliable way to estimate how well a foundation model will perform on future data. FoundationForecast implements **rolling-window backtesting**: the training set expands window by window, the model forecasts the next `h` steps, and the held-out actuals are returned alongside the predictions so you can compute error metrics. The same `cross_validation()` call works for a single series or an entire panel.
+
+## How rolling-window backtesting works
+
+Each window is defined by a **cutoff date**. For a given cutoff, all observations up to and including the cutoff are used for training, and the next `h` observations form the validation set. FoundationForecast shifts the cutoff forward by `step_size` periods to generate additional windows.
+
+```
+Series:   [ ... train ... | val (h) ]   ← window 1
+           [ ... train ......| val (h) ] ← window 2
+                             ↑ cutoff shifts by step_size
+```
+
+With `n_windows=3` and `step_size=h` (the default), the three most recent non-overlapping validation folds are evaluated.
+
+## The `cross_validation()` method
+
+```python
+ff.cross_validation(df, h, freq=None, n_windows=1, step_size=None, level=None, quantiles=None, futr_exog_list=None)
+```
+
+<ParamField path="df" type="pd.DataFrame" required>
+  Input time series with `unique_id`, `ds`, and `y` columns. When using exogenous variables, also include the exog columns here through the end of the last holdout window.
+</ParamField>
+
+<ParamField path="h" type="int" required>
+  Forecast horizon per window — the number of held-out steps to predict at each cutoff. Must be a positive integer.
+</ParamField>
+
+<ParamField path="freq" type="str">
+  Pandas offset alias for the timestamp spacing (e.g. `"MS"`, `"H"`, `"D"`). Inferred from `df` if omitted, but explicit is recommended.
+</ParamField>
+
+<ParamField path="n_windows" type="int" default="1">
+  Number of rolling windows to evaluate. Defaults to `1` (the most recent fold only). Increase this for more robust error estimates.
+</ParamField>
+
+<ParamField path="step_size" type="int">
+  Distance in periods between consecutive cutoff points. Defaults to `h`, producing non-overlapping validation windows. Set a smaller value for overlapping (finer-grained) evaluation.
+</ParamField>
+
+<ParamField path="level" type="list[int]">
+  Confidence levels for prediction intervals (e.g. `[80, 95]`). Mutually exclusive with `quantiles`.
+</ParamField>
+
+<ParamField path="quantiles" type="list[float]">
+  Quantile levels in `(0, 1)` (e.g. `[0.1, 0.5, 0.9]`). Mutually exclusive with `level`.
+</ParamField>
+
+<ParamField path="futr_exog_list" type="list[str]">
+  Names of exogenous columns to use from `df`. If omitted, all non-target columns (excluding `unique_id`, `ds`, `y`) are treated as exogenous. Only relevant for models with native exog support.
+</ParamField>
+
+## Basic example
+
+<Steps>
+  <Step title="Load data">
+    ```python
+    import pandas as pd
+
+    df = pd.read_csv(
+        "https://timecopilot.s3.amazonaws.com/public/data/air_passengers.csv",
+        parse_dates=["ds"],
+    )
+    ```
+  </Step>
+
+  <Step title="Run cross-validation with 3 windows">
+    ```python
+    from foundationforecast import FoundationForecast
+    from foundationforecast.models import Chronos
+
+    ff = FoundationForecast(models=[Chronos()])
+    cv_df = ff.cross_validation(df=df, h=12, freq="MS", n_windows=3)
+    print(cv_df.head())
+    ```
+  </Step>
+</Steps>
+
+## Output DataFrame structure
+
+`cross_validation()` returns a DataFrame with one row per `(unique_id, ds)` observation that fell in a validation window. A `cutoff` column identifies which fold each row belongs to.
+
+| Column | Description |
+|--------|-------------|
+| `unique_id` | Series identifier |
+| `ds` | Timestamp of the observation |
+| `cutoff` | Last training timestamp for the window that produced this row |
+| `y` | Actual observed value (ground truth) |
+| `{model alias}` | Point forecast from the model |
+| `{model alias}-lo-{L}` / `{model alias}-hi-{L}` | Interval bounds (if `level` set) |
+| `{model alias}-q-{pct}` | Quantile forecasts (if `quantiles` set) |
+
+```python
+print(cv_df.columns.tolist())
+# ['unique_id', 'ds', 'cutoff', 'y', 'Chronos']
+```
+
+## Evaluating accuracy per window
+
+Use the `cutoff` column to slice results by fold and compute metrics like MAE or RMSE:
+
+```python
+import numpy as np
+
+def mae(df, model_col):
+    return (df["y"] - df[model_col]).abs().mean()
+
+def rmse(df, model_col):
+    return np.sqrt(((df["y"] - df[model_col]) ** 2).mean())
+
+# Overall metrics
+print("MAE: ", mae(cv_df, "Chronos"))
+print("RMSE:", rmse(cv_df, "Chronos"))
+
+# Per-window metrics
+for cutoff, group in cv_df.groupby("cutoff"):
+    print(f"Cutoff {cutoff.date()} → MAE={mae(group, 'Chronos'):.2f}")
+```
+
+## Comparing multiple models
+
+With `FoundationForecast`, every model's predictions are merged into a single output DataFrame — ideal for side-by-side comparison:
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, TimesFM
+
+ff = FoundationForecast(
+    models=[
+        Chronos(alias="Chronos"),
+        TimesFM(alias="TimesFM"),
+    ]
+)
+
+cv_df = ff.cross_validation(df=df, h=12, freq="MS", n_windows=3)
+
+for model in ["Chronos", "TimesFM"]:
+    print(f"{model} MAE: {mae(cv_df, model):.2f}")
+```
+
+## Cross-validation with prediction intervals
+
+Pass `level` or `quantiles` to receive probabilistic output alongside actuals — useful for evaluating interval coverage:
+
+```python
+cv_df = ff.cross_validation(df=df, h=12, freq="MS", n_windows=3, level=[80, 95])
+
+# Coverage: fraction of actuals falling inside the 95% interval
+in_band = (cv_df["y"] >= cv_df["Chronos-lo-95"]) & (cv_df["y"] <= cv_df["Chronos-hi-95"])
+print(f"95% coverage: {in_band.mean():.1%}")
+```
+
+## Cross-validation with exogenous variables
+
+For models that support native exogenous variables, include your exog columns directly in `df` — covering both the training period **and** the holdout steps. Do not pass a separate `X_df` to `cross_validation()`; the library reads horizon covariates from `df` automatically.
+
+```python
+# df has columns: unique_id, ds, y, holiday_flag, price_index
+# exog covers the full date range including all holdout windows
+
+cv_df = ff.cross_validation(df=df, h=24, freq="H", n_windows=3)
+```
+
+Use `futr_exog_list` to explicitly name which columns are exogenous:
+
+```python
+cv_df = ff.cross_validation(
+    df=df,
+    h=24,
+    freq="H",
+    n_windows=3,
+    futr_exog_list=["holiday_flag", "price_index"],
+)
+```
+
+<Note>
+  Only models with native exog support (Chronos-2, TimesFM-3, TimeGPT, T0, TiRex-2) will use those columns. For models without native exog support in a multi-model run, set `exog_strategy=False` on those models so they silently ignore the exog columns. See the [Exogenous Variables](/guides/exogenous-variables) guide for details.
+</Note>
+
+## Choosing `n_windows` and `step_size`
+
+<CardGroup cols={2}>
+  <Card title="More windows = more reliable estimates" icon="chart-line">
+    With `n_windows=1` you evaluate a single recent fold. Increasing `n_windows` gives a more statistically stable error estimate, at the cost of more model inference.
+  </Card>
+  <Card title="step_size controls fold overlap" icon="arrows-left-right">
+    `step_size` defaults to `h` (non-overlapping). Setting a smaller value (e.g. `step_size=1`) produces finer-grained evaluation but adjacent windows share validation data.
+  </Card>
+</CardGroup>
+
+<Warning>
+  Each series must have at least `h × n_windows + 1` observations for `n_windows` non-overlapping folds to fit. If any series is too short, `cross_validation()` raises a `ValueError`. Check your shortest series before increasing `n_windows`.
+</Warning>

@@ -1,0 +1,102 @@
+---
+title: "Sundial Model API Reference"
+sidebarTitle: "Sundial"
+description: "API reference for the Sundial class. THUML's continuous-time foundation model for time series with probabilistic forecasting support."
+---
+
+**Sundial** is a family of generative time series foundation models developed by THUML, pre-trained on **TimeBench** — a dataset of 10¹² time points. It uses the **TimeFlow Loss** to predict next-patch distributions, enabling Transformers to be trained without discrete tokenisation and to make non-deterministic, sample-based predictions. Because Sundial draws multiple samples per forecast step, it naturally supports both point forecasts (via the sample median) and full probabilistic outputs (via empirical quantiles), making it a strong choice for long-horizon probabilistic forecasting at zero-shot.
+
+```python
+from foundationforecast.models import Sundial
+```
+
+<Note>
+  Sundial is released under the **Apache-2.0** license and is free for commercial use. The model weights are loaded in `bfloat16` for efficiency on supported hardware. Python 3.10–3.12 is required; **Python 3.13+ is not supported**.
+</Note>
+
+## Constructor
+
+```python
+Sundial(
+    repo_id="thuml/sundial-base-128m",
+    num_samples=100,
+    context_length=2880,
+    batch_size=1024,
+    alias="Sundial",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default='"thuml/sundial-base-128m"'>
+  The Hugging Face Hub model ID or local path to load the Sundial model from. Defaults to `thuml/sundial-base-128m` (128M parameters). See the [THUML Hugging Face page](https://huggingface.co/thuml/sundial-base-128m) for the full list of available checkpoints.
+</ParamField>
+
+<ParamField path="num_samples" type="int" default="100">
+  Number of samples to generate per forecast step for probabilistic output. More samples provide better distribution estimates at the cost of increased compute time. The point forecast is the sample median; quantile forecasts are computed as empirical quantiles over the sample set.
+</ParamField>
+
+<ParamField path="context_length" type="int" default="2880">
+  Maximum context length (input window size). Controls how much historical data is fed to the model. Series exceeding this length are truncated to the most recent `context_length` observations. The model supports varying lookback lengths.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="1024">
+  Batch size for inference. Defaults to 1,024. Adjust based on available GPU memory. Larger values improve throughput; reduce this value if you encounter out-of-memory errors on smaller GPUs.
+</ParamField>
+
+<ParamField path="alias" type="str" default='"Sundial"'>
+  Name used for this model in output DataFrames and log messages.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True` (default), checkpoint weights are cached in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type="ExogStrategyConfig" default='"auto"'>
+  Controls how exogenous (covariate) variables are handled. Sundial has **no native exogenous support**. In mixed `FoundationForecast` runs that include models with native exog, set `exog_strategy=False` to explicitly disable covariate injection for this model.
+</ParamField>
+
+## Available checkpoints
+
+| Model ID | Size | License |
+|---|---|---|
+| `thuml/sundial-base-128m` | 128M parameters | Apache-2.0 |
+
+## Usage example
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Sundial
+
+df = pd.read_csv("my_timeseries.csv", parse_dates=["ds"])
+
+# Default checkpoint with 100 samples
+model = Sundial(alias="Sundial")
+
+# Higher sample count for tighter probabilistic intervals
+model_precise = Sundial(
+    num_samples=500,
+    context_length=2880,
+    alias="Sundial-500",
+)
+
+ff = FoundationForecast(models=[model])
+fcst_df = ff.forecast(df, h=48, level=[80, 95])
+```
+
+<Tip>
+  Increasing `num_samples` improves the smoothness and accuracy of predicted quantiles, particularly in the tails. For exploratory or batch forecasting where speed matters more than tail precision, the default of 100 samples is usually sufficient.
+</Tip>
+
+## Notes
+
+- **Python compatibility:** 3.10–3.12. The model raises an `ImportError` on Python 3.13+.
+- **Weight precision:** Weights are loaded with `torch_dtype=torch.bfloat16`. A CUDA GPU is strongly recommended for acceptable inference speed on large datasets.
+- **Device selection:** Automatically uses CUDA GPU if available, otherwise CPU.
+- **Exogenous variables:** No native exog support. Use `exog_strategy=False` in mixed `FoundationForecast` runs.
+- **Paper:** [Sundial: A Family of Highly Capable Time Series Foundation Models](https://arxiv.org/abs/2502.00816)
+- **GitHub:** [thuml/Sundial](https://github.com/thuml/Sundial)
+- **HuggingFace:** [thuml/sundial-base-128m](https://huggingface.co/thuml/sundial-base-128m)

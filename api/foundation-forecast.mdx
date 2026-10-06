@@ -1,0 +1,435 @@
+---
+title: "FoundationForecast Class API Reference"
+sidebarTitle: "FoundationForecast"
+description: "Complete API reference for the FoundationForecast class — constructor, forecast(), cross_validation(), detect_anomalies(), and plot() methods."
+---
+
+`FoundationForecast` is the main entry point that orchestrates multiple foundation model forecasters through a unified interface. It accepts a list of `Forecaster` instances, runs each one in sequence, and merges their predictions into a single output DataFrame — one column per model alias.
+
+```python
+from foundationforecast import FoundationForecast
+```
+
+---
+
+## Constructor
+
+```python
+FoundationForecast(models, fallback_model=None, clean_cache=False)
+```
+
+Instantiate a multi-model forecaster. Every method on `FoundationForecast` (`forecast`, `cross_validation`, `detect_anomalies`) delegates to each model in `models` and joins the results on the shared index columns.
+
+<Warning>
+  Each model in `models` must have a **unique** `alias`. Duplicate aliases raise a `ValueError` at construction time.
+</Warning>
+
+<ParamField path="models" type="list[Forecaster]" required>
+  List of forecaster instances to run. Each must have a unique `alias` attribute.
+  Supported built-ins include `Chronos`, `Toto`, `TimesFM`, `TimeGPT`, `Moirai`, `TiRex`, `T0`, `FlowState`, `PatchTSTFM`, `Sundial`, and `TabPFN`.
+</ParamField>
+
+<ParamField path="fallback_model" type="Forecaster | None" default="None">
+  Optional substitute forecaster invoked when a primary model raises a `ValueError` or `RuntimeError`.
+  The fallback's output columns are automatically renamed to match the failing model's alias so downstream code does not need to change.
+</ParamField>
+
+<ParamField path="clean_cache" type="bool" default="False">
+  When `True`, call `clear_model_cache()` on every model immediately after each one finishes forecasting.
+  This releases GPU memory between model runs and helps limit peak memory usage in large multi-model ensembles.
+</ParamField>
+
+---
+
+## forecast()
+
+```python
+ff.forecast(df, h, freq=None, level=None, quantiles=None, panel=None, X_df=None, *, futr_df=None, futr_exog_list=None)
+```
+
+Generate point forecasts (and optionally prediction intervals or quantiles) for every series in `df`, using every model in `ff.models`. Results from each model are joined into a single DataFrame.
+
+<Note>
+  `level` and `quantiles` are mutually exclusive — passing both raises a `ValueError`.
+</Note>
+
+### Parameters
+
+<ParamField path="df" type="pd.DataFrame" required>
+  Historical time series in long format. Must contain the columns `unique_id`, `ds`, and `y`.
+  Additional columns are treated as historical exogenous features and passed to models that support them.
+</ParamField>
+
+<ParamField path="h" type="int" required>
+  Forecast horizon — the number of future time steps to predict.
+</ParamField>
+
+<ParamField path="freq" type="str | None" default="None">
+  Pandas frequency string describing the time series cadence (e.g. `"H"` for hourly, `"D"` for daily, `"MS"` for month-start).
+  When `None`, the frequency is inferred automatically from the `ds` column of the longest series.
+</ParamField>
+
+<ParamField path="level" type="list[int | float] | None" default="None">
+  Confidence levels for symmetric prediction intervals, expressed as integer percentages.
+  For example, `[80, 95]` produces `{alias}-lo-80`, `{alias}-hi-80`, `{alias}-lo-95`, and `{alias}-hi-95` columns.
+  Mutually exclusive with `quantiles`.
+</ParamField>
+
+<ParamField path="quantiles" type="list[float] | None" default="None">
+  Quantile levels to forecast, each a float in the open interval `(0, 1)`.
+  Produces `{alias}-q-{pct}` columns. Mutually exclusive with `level`.
+</ParamField>
+
+<ParamField path="X_df" type="pd.DataFrame | None" default="None">
+  Known-future exogenous features for the next `h` steps. Required columns: `unique_id`, `ds`, plus any exog columns — do **not** include `y`.
+  Only consumed by models whose `exog_strategy` is not `False` and that support native exog for the loaded checkpoint.
+</ParamField>
+
+<ParamField path="futr_df" type="pd.DataFrame | None" default="None">
+  Keyword-only alias for `X_df`. If both are provided, `futr_df` takes precedence.
+</ParamField>
+
+<ParamField path="futr_exog_list" type="list[str] | None" default="None">
+  Explicit list of exogenous column names to use from `X_df` / `futr_df`.
+  When `None`, column names are inferred automatically from the horizon DataFrame.
+</ParamField>
+
+### Returns
+
+<ResponseField name="forecasts" type="pd.DataFrame">
+  A DataFrame with the following structure:
+
+  <Expandable title="Output columns">
+    <ResponseField name="unique_id" type="str | int">
+      Series identifier, matching the input `df`.
+    </ResponseField>
+    <ResponseField name="ds" type="datetime">
+      Forecast timestamp for each future step.
+    </ResponseField>
+    <ResponseField name="{alias}" type="float">
+      Point forecast from each model. One column per model alias (e.g. `Chronos`, `Toto`).
+    </ResponseField>
+    <ResponseField name="{alias}-lo-{level} / {alias}-hi-{level}" type="float">
+      Lower and upper bounds of prediction intervals. Present only when `level` is provided.
+    </ResponseField>
+    <ResponseField name="{alias}-q-{pct}" type="float">
+      Quantile forecasts. Present only when `quantiles` is provided.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast, Chronos, Toto
+
+ff = FoundationForecast(models=[Chronos(), Toto()])
+
+forecasts = ff.forecast(df, h=12, freq="MS", level=[80, 95])
+print(forecasts.head())
+# unique_id          ds  Chronos  Chronos-lo-80  Chronos-hi-80  Toto  ...
+```
+
+---
+
+## cross_validation()
+
+```python
+ff.cross_validation(df, h, freq=None, n_windows=1, step_size=None, level=None, quantiles=None, *, futr_exog_list=None)
+```
+
+Evaluate model accuracy using a rolling-window backtesting strategy. For each window, models are trained on historical data up to the cutoff date and asked to predict the following `h` steps. The actual observations are included in the output so you can compute error metrics directly.
+
+<Tip>
+  To use exogenous variables in cross-validation, include exog columns in `df` that span through the holdout windows, then pass their names via `futr_exog_list`.
+</Tip>
+
+### Parameters
+
+<ParamField path="df" type="pd.DataFrame" required>
+  Historical time series in the same long format as `forecast()` (`unique_id`, `ds`, `y`).
+  Include exog columns in `df` if you intend to pass `futr_exog_list` — they are sliced automatically per window.
+</ParamField>
+
+<ParamField path="h" type="int" required>
+  Forecast horizon per validation window.
+</ParamField>
+
+<ParamField path="freq" type="str | None" default="None">
+  Pandas frequency string. Inferred from `ds` when `None`.
+</ParamField>
+
+<ParamField path="n_windows" type="int" default="1">
+  Number of rolling validation windows to create. More windows provide a more robust estimate of out-of-sample error.
+</ParamField>
+
+<ParamField path="step_size" type="int | None" default="None">
+  Number of time steps between successive cutoff dates. Defaults to `h` (non-overlapping windows).
+</ParamField>
+
+<ParamField path="level" type="list[int | float] | None" default="None">
+  Confidence levels for prediction intervals. Same semantics as `forecast()`.
+</ParamField>
+
+<ParamField path="quantiles" type="list[float] | None" default="None">
+  Quantile levels in `(0, 1)`. Same semantics as `forecast()`.
+</ParamField>
+
+<ParamField path="futr_exog_list" type="list[str] | None" default="None">
+  Names of exog columns in `df` to use as known-future features in each window.
+  When provided, the appropriate future slice is automatically extracted and passed to each model.
+</ParamField>
+
+### Returns
+
+<ResponseField name="cv_results" type="pd.DataFrame">
+  Cross-validation results with one row per (series, window step).
+
+  <Expandable title="Output columns">
+    <ResponseField name="unique_id" type="str | int">
+      Series identifier.
+    </ResponseField>
+    <ResponseField name="ds" type="datetime">
+      Forecast timestamp within the holdout window.
+    </ResponseField>
+    <ResponseField name="cutoff" type="datetime">
+      Last training date for the corresponding window.
+    </ResponseField>
+    <ResponseField name="y" type="float">
+      Actual observed value — use this to compute error metrics.
+    </ResponseField>
+    <ResponseField name="{alias}" type="float">
+      Point forecast from each model.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```python
+cv = ff.cross_validation(df, h=12, freq="MS", n_windows=3)
+
+# Compute MAE per model
+import numpy as np
+for alias in ["Chronos", "Toto"]:
+    mae = np.abs(cv["y"] - cv[alias]).mean()
+    print(f"{alias} MAE: {mae:.4f}")
+```
+
+---
+
+## detect_anomalies()
+
+```python
+ff.detect_anomalies(df, h=None, freq=None, n_windows=None, level=99)
+```
+
+Detect anomalies in historical time series by running cross-validation and flagging observations whose residuals fall outside a statistical confidence band. Residuals are standardised per series; observations with a z-score exceeding the critical threshold are marked as anomalies.
+
+<Note>
+  Anomaly detection is entirely in-sample — it does not produce future forecasts.
+  The `h` parameter controls the granularity of the rolling evaluation, not a future horizon.
+</Note>
+
+### Parameters
+
+<ParamField path="df" type="pd.DataFrame" required>
+  Historical time series (`unique_id`, `ds`, `y`). Must be long enough to support at least one cross-validation window of length `h` plus one training observation.
+</ParamField>
+
+<ParamField path="h" type="int | None" default="None">
+  Step size for the rolling evaluation windows.
+  Defaults to the seasonal period inferred from the detected frequency (e.g. 12 for monthly data, 7 for daily data).
+</ParamField>
+
+<ParamField path="freq" type="str | None" default="None">
+  Pandas frequency string. Inferred from `ds` when `None`.
+</ParamField>
+
+<ParamField path="n_windows" type="int | None" default="None">
+  Number of rolling windows to use when building the residual distribution.
+  Defaults to the maximum number of non-overlapping windows that fit in the series.
+</ParamField>
+
+<ParamField path="level" type="int | float" default="99">
+  Confidence level as a percentage used to set the anomaly threshold.
+  A higher value means a wider confidence band and therefore fewer anomalies flagged.
+  For example, `level=99` flags only observations outside the 99% interval.
+</ParamField>
+
+### Returns
+
+<ResponseField name="anomaly_results" type="pd.DataFrame">
+  One row per (series, window step), with anomaly labels and confidence bands.
+
+  <Expandable title="Output columns">
+    <ResponseField name="unique_id" type="str | int">
+      Series identifier.
+    </ResponseField>
+    <ResponseField name="ds" type="datetime">
+      Timestamp of the evaluated observation.
+    </ResponseField>
+    <ResponseField name="cutoff" type="datetime">
+      Last training date for the window containing this observation.
+    </ResponseField>
+    <ResponseField name="y" type="float">
+      Actual observed value.
+    </ResponseField>
+    <ResponseField name="{alias}" type="float">
+      Model point forecast for that step.
+    </ResponseField>
+    <ResponseField name="{alias}-lo-{level}" type="float">
+      Lower confidence bound (e.g. `Chronos-lo-99`).
+    </ResponseField>
+    <ResponseField name="{alias}-hi-{level}" type="float">
+      Upper confidence bound (e.g. `Chronos-hi-99`).
+    </ResponseField>
+    <ResponseField name="{alias}-anomaly" type="bool">
+      `True` when the observation falls outside the confidence band.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```python
+anomalies = ff.detect_anomalies(df, freq="D", level=99)
+
+# Inspect flagged points
+flagged = anomalies[anomalies["Chronos-anomaly"]]
+print(flagged[["unique_id", "ds", "y", "Chronos"]].head())
+```
+
+---
+
+## plot() (static method)
+
+```python
+FoundationForecast.plot(
+    df=None,
+    forecasts_df=None,
+    ids=None,
+    plot_random=True,
+    max_ids=8,
+    models=None,
+    level=None,
+    max_insample_length=None,
+    plot_anomalies=False,
+    engine="matplotlib",
+    palette=None,
+    seed=None,
+    resampler_kwargs=None,
+    ax=None,
+)
+```
+
+Visualise historical series alongside model forecasts or anomaly detections. When `forecasts_df` contains anomaly columns (produced by `detect_anomalies()`), the method automatically configures `plot_anomalies=True`, strips the anomaly flag columns, and suppresses `df` (since the in-sample data is embedded in the cross-validation output).
+
+<Warning>
+  `plot()` requires the `foundationforecast[plot]` optional dependency group.
+  Install it with `pip install "foundationforecast[plot]"`.
+</Warning>
+
+### Parameters
+
+<ParamField path="df" type="pd.DataFrame | None" default="None">
+  Original historical time series DataFrame (`unique_id`, `ds`, `y`).
+  Pass `None` when plotting anomaly detection output — the in-sample data is already included in `forecasts_df`.
+</ParamField>
+
+<ParamField path="forecasts_df" type="pd.DataFrame | None" default="None">
+  Output from `forecast()` or `detect_anomalies()`. When anomaly columns are detected, the plot is automatically configured for anomaly display.
+</ParamField>
+
+<ParamField path="ids" type="list[str] | None" default="None">
+  Explicit list of `unique_id` values to plot. When `None` and `plot_random=True`, series are chosen at random (up to `max_ids`).
+</ParamField>
+
+<ParamField path="plot_random" type="bool" default="True">
+  When `True` and `ids` is `None`, select series at random rather than taking the first `max_ids`.
+</ParamField>
+
+<ParamField path="max_ids" type="int | None" default="8">
+  Maximum number of series to render. Guards against unreadable plots when `df` contains many series.
+</ParamField>
+
+<ParamField path="models" type="list[str] | None" default="None">
+  Model aliases to include in the plot. Defaults to all model columns found in `forecasts_df`.
+</ParamField>
+
+<ParamField path="level" type="list[float] | None" default="None">
+  Confidence levels to shade. Inferred automatically from `forecasts_df` column names when plotting anomaly output.
+</ParamField>
+
+<ParamField path="max_insample_length" type="int | None" default="None">
+  Limit the number of historical points shown per series. Useful for long series where the full history dwarfs the forecast.
+</ParamField>
+
+<ParamField path="plot_anomalies" type="bool" default="False">
+  When `True`, highlight anomalous points on the plot. Set automatically when `forecasts_df` contains anomaly columns.
+</ParamField>
+
+<ParamField path="engine" type="str" default='"matplotlib"'>
+  Rendering backend. Accepts `"matplotlib"` for static plots or `"plotly"` for interactive plots.
+</ParamField>
+
+<ParamField path="palette" type="str | None" default="None">
+  Colour palette name passed to the underlying plotting library.
+</ParamField>
+
+<ParamField path="seed" type="int | None" default="None">
+  Random seed for reproducible series selection when `plot_random=True`.
+</ParamField>
+
+<ParamField path="resampler_kwargs" type="dict | None" default="None">
+  Extra keyword arguments forwarded to the Plotly resampler (only relevant when `engine="plotly"`).
+</ParamField>
+
+<ParamField path="ax" type="plt.Axes | np.ndarray | plotly.graph_objects.Figure | None" default="None">
+  Existing axes or figure to draw into. When `None`, a new figure is created.
+</ParamField>
+
+### Example
+
+```python
+# Plot forecasts
+FoundationForecast.plot(df=df, forecasts_df=forecasts, level=[80, 95], engine="matplotlib")
+
+# Plot anomaly detections
+FoundationForecast.plot(forecasts_df=anomalies)
+```
+
+---
+
+## set_max_cached_models()
+
+```python
+from foundationforecast import set_max_cached_models
+
+set_max_cached_models(n)
+```
+
+Configure the process-wide LRU cache used to keep model checkpoint weights in memory across `forecast()` calls. By default, up to **one** model is cached at a time. Increasing this limit is beneficial when switching frequently between a small set of models; decreasing it (or setting `n=0`) trades speed for lower memory usage.
+
+<Tip>
+  Call `set_max_cached_models(0)` to disable caching entirely — weights will be loaded and released on every `forecast()` call.
+  This is equivalent to constructing every forecaster with `reuse_loaded_model=False`.
+</Tip>
+
+<ParamField path="n" type="int" required>
+  Maximum number of model checkpoints to keep in the LRU cache simultaneously.
+  Pass `0` to disable caching.
+</ParamField>
+
+### Example
+
+```python
+from foundationforecast import set_max_cached_models, FoundationForecast, Chronos, Toto
+
+# Keep both models warm in memory
+set_max_cached_models(2)
+
+ff = FoundationForecast(models=[Chronos(), Toto()])
+forecasts = ff.forecast(df, h=24, freq="H")
+```

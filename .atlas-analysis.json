@@ -1,0 +1,113 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "FoundationForecast",
+  "projectDescription": "A unified Python API for time series foundation models — run forecast, cross-validation, and anomaly detection across Chronos, Moirai, TimesFM, Toto, and 12 other models through a single interface.",
+  "theme": "luma",
+  "primaryColor": "#fbd342",
+  "lightColor": "#3b73a4",
+  "darkColor": "#e4e3de",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/forecasting",
+              "guides/cross-validation",
+              "guides/anomaly-detection",
+              "guides/exogenous-variables",
+              "guides/probabilistic-forecasts"
+            ]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "models/model-hub",
+              "models/model-weight-cache"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "resources/changelog",
+              "resources/contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/foundation-forecast",
+              "api/forecaster"
+            ]
+          },
+          {
+            "group": "Model Classes",
+            "pages": [
+              "api/models/chronos",
+              "api/models/moirai",
+              "api/models/timesfm",
+              "api/models/timegpt",
+              "api/models/toto",
+              "api/models/tirex",
+              "api/models/tabpfn",
+              "api/models/t0",
+              "api/models/flowstate",
+              "api/models/patchtst-fm",
+              "api/models/sundial",
+              "api/models/tafsut"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Single FoundationForecast class runs 12+ pretrained foundation models through one API",
+    "Three unified methods: forecast(), cross_validation(), and detect_anomalies()",
+    "Known-future exogenous variables (X_df) on supported checkpoints: Chronos-2, TimesFM-3, TimeGPT, T0, TiRex-2",
+    "Probabilistic forecasting via level (prediction intervals) or quantiles",
+    "GPU-native — automatically runs on GPU when available without model-specific configuration",
+    "Process-wide LRU model weight cache with configurable size via set_max_cached_models()",
+    "Finetuning support for Chronos and TimeGPT at inference time",
+    "Fallback model support and clean_cache option for multi-model ensembles",
+    "Benchmark replication CI against GIFT-Eval and fev-bench leaderboards"
+  ],
+  "publicApiSurface": [
+    "FoundationForecast(models, fallback_model, clean_cache)",
+    "FoundationForecast.forecast(df, h, freq, level, quantiles, X_df)",
+    "FoundationForecast.cross_validation(df, h, freq, n_windows, step_size, level, quantiles)",
+    "FoundationForecast.detect_anomalies(df, h, freq, n_windows, level)",
+    "FoundationForecast.plot(df, forecasts_df, ids, max_ids, level, engine)",
+    "set_max_cached_models(n)",
+    "Forecaster.clear_model_cache()",
+    "Chronos(repo_id, batch_size, alias, dtype, finetuning_config, reuse_loaded_model, exog_strategy)",
+    "ChronosFinetuningConfig(finetune_steps, learning_rate, batch_size, finetune_mode, lora_config, save_path)",
+    "Moirai(repo_id, alias, reuse_loaded_model)",
+    "TimesFM(repo_id, alias, context_length, reuse_loaded_model, exog_strategy)",
+    "TimeGPT(model, alias, reuse_loaded_model, exog_strategy)",
+    "TimeGPTFinetuningConfig(finetune_steps, freq, loss)",
+    "Toto(context_length, alias, reuse_loaded_model)",
+    "TiRex(repo_id, alias, reuse_loaded_model, exog_strategy)",
+    "TabPFN(alias, model_path, mode, reuse_loaded_model)",
+    "T0(repo_id, alias, reuse_loaded_model, exog_strategy)",
+    "FlowState(repo_id, alias, reuse_loaded_model)",
+    "PatchTSTFM(repo_id, alias, reuse_loaded_model)",
+    "Sundial(repo_id, alias, reuse_loaded_model)",
+    "Tafsut(repo_id, alias, reuse_loaded_model, exog_strategy)"
+  ]
+}

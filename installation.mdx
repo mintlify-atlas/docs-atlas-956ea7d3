@@ -1,0 +1,101 @@
+---
+title: "Install FoundationForecast"
+sidebarTitle: "Installation"
+description: "Install the foundationforecast Python package with pip or uv. Covers Python version requirements, optional extras, API keys, and local development setup."
+---
+
+FoundationForecast is published on PyPI and installs like any other Python package. The only hard requirement is **Python 3.10 or later**. Some models have narrower version windows due to their upstream dependencies — the tables below tell you exactly what is compatible with your environment.
+
+## Install from PyPI
+
+<CodeGroup>
+
+```bash pip
+pip install foundationforecast
+```
+
+```bash uv
+uv add foundationforecast
+```
+
+</CodeGroup>
+
+[uv](https://docs.astral.sh/uv/) is the recommended installer. It resolves the heavy ML dependency stack (torch, transformers, and model-specific packages) significantly faster than pip and produces a lockfile for reproducible environments.
+
+<Tip>
+  If you are new to uv, see the [uv getting started guide](https://docs.astral.sh/uv/getting-started/) for installation instructions. Once installed, `uv add foundationforecast` handles everything else.
+</Tip>
+
+## Optional extras
+
+The base install includes all model wrappers but not the plotting helpers. To use `ff.plot()`, install the `[plot]` extra, which pulls in `matplotlib` and `plotly`:
+
+<CodeGroup>
+
+```bash pip
+pip install "foundationforecast[plot]"
+```
+
+```bash uv
+uv add "foundationforecast[plot]"
+```
+
+</CodeGroup>
+
+## Python version and model availability
+
+FoundationForecast supports Python 3.10 and later, but some model wrappers have additional constraints imposed by their upstream packages. If a model is outside your Python version window, its class will not be importable — the library itself will still install and work for all compatible models.
+
+| Model | Python requirement |
+|-------|--------------------|
+| Chronos, Moirai, TimesFM, Toto, TimeGPT, Sundial, Tafsut | 3.10+ |
+| TiRex / TiRex-2 | 3.11+ |
+| T0, FlowState, PatchTST-FM | 3.11 – 3.13 |
+| TabPFN | 3.10 – 3.12 |
+
+<Note>
+  Sundial and TabPFN are also unavailable on Python 3.13+. The library automatically gates these imports at runtime — importing `foundationforecast` on Python 3.13 will succeed, but `from foundationforecast.models import TabPFN` will raise an `ImportError`.
+</Note>
+
+## API keys
+
+Several models require credentials before they can be used. Set these as environment variables before running any forecast.
+
+**TimeGPT** (Nixtla) is a hosted API. Every request is authenticated against your Nixtla account:
+
+```bash
+export NIXTLA_API_KEY="your-nixtla-api-key"
+```
+
+Get a key at [nixtla.io](https://www.nixtla.io/).
+
+**TabPFN** runs locally by default, but Prior Labs requires you to accept their terms of service before the weights can be downloaded. Visit [ux.priorlabs.ai](https://ux.priorlabs.ai) to accept the terms, then set the token you receive:
+
+```bash
+export TABPFN_TOKEN="your-tabpfn-token"
+```
+
+<Warning>
+  TabPFN weights (v2.6 and later, including TabPFN-3) are non-commercial. Production use requires a separate commercial license or the Prior Labs hosted API. See the [Prior Labs documentation](https://docs.priorlabs.ai/models) for details.
+</Warning>
+
+**T0** (The Forecasting Company) is a gated model on Hugging Face. You must request access on the model card page and then authenticate with a Hugging Face token:
+
+```bash
+export HF_TOKEN="your-huggingface-token"
+```
+
+Generate a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). T0 access can be requested on the [t0-alpha model card](https://huggingface.co/theforecastingcompany/t0-alpha).
+
+## Local development
+
+To contribute to FoundationForecast or run the full test suite locally, clone the repository and use `uv sync` with the development and documentation dependency groups:
+
+```bash
+git clone git@github.com:TimeCopilot/foundationforecast.git
+cd foundationforecast
+uv sync --group dev --group docs
+pre-commit install --install-hooks
+```
+
+The `dev` group includes pytest, ruff, and benchmark tooling. The `docs` group adds MkDocs and the notebook rendering dependencies. After syncing, activate the environment with `source .venv/bin/activate` (or let uv manage it via `uv run`).

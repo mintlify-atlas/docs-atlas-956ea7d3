@@ -1,0 +1,115 @@
+---
+title: "T0 Model API Reference"
+sidebarTitle: "T0"
+description: "API reference for the T0 class. The Forecasting Company's foundation model with native exogenous variable support on t0-alpha and t0-beta checkpoints."
+---
+
+**T0** is an open-weights time series foundation model from [The Forecasting Company](https://theforecastingcompany.com/). It is a decoder-style patch transformer that alternates time and covariate attention layers, producing probabilistic multi-horizon quantile forecasts. T0 decodes up to 1,024 timesteps in a single forward pass and falls back on autoregressive rollout for longer horizons. Both **t0-alpha** (~102M parameters) and **t0-beta** (~256M parameters) natively handle numerical covariates — both historical (known over the past) and future (known over the forecast horizon) — making T0 one of the few foundation models in FoundationForecast with first-class known-future exogenous variable support via `X_df`.
+
+```python
+from foundationforecast.models import T0
+```
+
+<Warning>
+  T0 is a **gated model** on Hugging Face. You must accept the terms on the model card page and set the `HF_TOKEN` environment variable before loading weights. The checkpoint license is **Apache-2.0†** (commercial-friendly, but gated access applies). Python 3.11–3.13 is required.
+</Warning>
+
+<Note>
+  **t0-beta** requires `tfc-t0>=0.5.0`. This same package version also supports `t0-alpha`, so upgrading is always safe. Install with `pip install "tfc-t0>=0.5.0"` before using `theforecastingcompany/t0-beta`.
+</Note>
+
+## Constructor
+
+```python
+T0(
+    repo_id="theforecastingcompany/t0-alpha",
+    context_length=4096,
+    batch_size=16,
+    alias="t0-alpha",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default='"theforecastingcompany/t0-alpha"'>
+  The Hugging Face Hub model ID or local path to load the T0 model from. The two available checkpoints are listed below.
+
+  | Model ID | Parameters | Notes |
+  |---|---|---|
+  | `theforecastingcompany/t0-alpha` | ~102M | Default; 5 quantile knots (0.1, 0.25, 0.5, 0.75, 0.9) |
+  | `theforecastingcompany/t0-beta` | ~256M | 21 native levels (0.01–0.99); requires `tfc-t0>=0.5.0` |
+</ParamField>
+
+<ParamField path="context_length" type="int" default="4096">
+  Maximum context length (input window size). Series longer than this are truncated to the most recent `context_length` observations before inference.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="16">
+  Batch size for inference. Adjust based on available GPU or CPU memory. Larger values improve throughput at the cost of higher peak memory usage.
+</ParamField>
+
+<ParamField path="alias" type="str" default='"t0-alpha"'>
+  Name used for this model in output DataFrames and log messages. Update this when switching to `t0-beta` to keep forecast columns clearly labelled.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True` (default), checkpoint weights are cached in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type="ExogStrategyConfig" default='"auto"'>
+  Controls how exogenous (covariate) variables are handled. T0 has **native** known-future exogenous support on both `t0-alpha` and `t0-beta`. When `exog_strategy="auto"` (default) and `X_df` is provided at forecast time, covariates are passed directly to the model via its `future_covariates` interface. Set to `False` to disable covariate injection entirely.
+</ParamField>
+
+## Available checkpoints
+
+| Model ID | Parameters | Quantile knots | Requires |
+|---|---|---|---|
+| `theforecastingcompany/t0-alpha` | ~102M | 5 (0.1–0.9) | `tfc-t0` any version |
+| `theforecastingcompany/t0-beta` | ~256M | 21 (0.01–0.99) | `tfc-t0>=0.5.0` |
+
+## Usage example
+
+### Point and interval forecast
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import T0
+
+df = pd.read_csv("my_timeseries.csv", parse_dates=["ds"])
+
+ff = FoundationForecast(models=[T0(alias="t0-alpha")])
+fcst_df = ff.forecast(df, h=24, level=[80, 90])
+```
+
+### Forecast with known-future exogenous variables
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import T0
+
+df = pd.read_csv("train.csv", parse_dates=["ds"])
+X_df = pd.read_csv("future_covariates.csv", parse_dates=["ds"])
+# X_df must cover the forecast horizon for each unique_id and contain
+# the same covariate columns as appear in df.
+
+ff = FoundationForecast(
+    models=[T0(repo_id="theforecastingcompany/t0-beta", alias="t0-beta")]
+)
+fcst_df = ff.forecast(df=df, h=24, X_df=X_df, level=[90])
+```
+
+<Tip>
+  When requesting quantiles outside the model's native knot range, FoundationForecast linearly interpolates across the available knots. The median (0.5) is always used as the point forecast column. `t0-beta`'s 21-level output provides denser coverage and tighter interpolation for tail quantiles.
+</Tip>
+
+## Notes
+
+- **Python compatibility:** 3.11–3.13.
+- **Gated model:** Accept the terms on the HuggingFace model card and export `HF_TOKEN` before loading.
+- **Exogenous variables:** Both `t0-alpha` and `t0-beta` support native known-future covariates via `X_df`. NaN values in the context window are treated as missing observations.
+- **HuggingFace:** [theforecastingcompany/t0-alpha](https://huggingface.co/theforecastingcompany/t0-alpha)
+- **Platform:** [Retrocast](https://app.retrocast.com/)

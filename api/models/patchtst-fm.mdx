@@ -1,0 +1,107 @@
+---
+title: "PatchTST-FM Model API Reference"
+sidebarTitle: "PatchTST-FM"
+description: "API reference for the PatchTSTFM class. IBM's patch-based transformer for time series forecasting. r2 checkpoints use Apache-2.0 license."
+---
+
+**PatchTST-FM** is IBM Research's patch-based transformer adapted as a foundation model for time series forecasting. Built on the standard PatchTST architecture, it achieves state-of-the-art zero-shot forecasting performance through a transparent, reproducible training protocol with comprehensive ablations on model scaling, data composition, and training techniques. Two checkpoint generations are available: **r1** checkpoints (released under CC-BY-NC-SA-4.0, non-commercial) and **r2** checkpoints (released under Apache-2.0 / OpenMDW 1.0, commercial-friendly) as part of the IBM Granite time series family.
+
+```python
+from foundationforecast.models import PatchTSTFM
+```
+
+<Warning>
+  The default `r1` checkpoints (`ibm-research/patchtst-fm-r1`, `ibm-granite/granite-timeseries-patchtst-fm-r1`) are licensed under **CC-BY-NC-SA-4.0** and are **not permitted for commercial or revenue-generating use** without a separate agreement from the rights holder. For production deployments, use the `r2` checkpoint (`ibm-granite/granite-timeseries-patchtst-fm-r2`), which is licensed under Apache-2.0 / OpenMDW 1.0.
+</Warning>
+
+<Note>
+  The **r2 checkpoint** requires `granite-tsfm>=0.3.9`. Install or upgrade with `pip install "granite-tsfm>=0.3.9"` before using `ibm-granite/granite-timeseries-patchtst-fm-r2`. Python 3.11–3.13 is required for all checkpoints.
+</Note>
+
+## Constructor
+
+```python
+PatchTSTFM(
+    repo_id="ibm-research/patchtst-fm-r1",
+    context_length=8192,
+    batch_size=2048,
+    alias="PatchTST-FM",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default='"ibm-research/patchtst-fm-r1"'>
+  The Hugging Face Hub model ID or local path to load the PatchTST-FM model from. Three checkpoints are available across two generations:
+
+  | Model ID | Generation | License |
+  |---|---|---|
+  | `ibm-research/patchtst-fm-r1` | r1 (default) | CC-BY-NC-SA-4.0 |
+  | `ibm-granite/granite-timeseries-patchtst-fm-r1` | r1 | CC-BY-NC-SA-4.0 |
+  | `ibm-granite/granite-timeseries-patchtst-fm-r2` | r2 | Apache-2.0 / OpenMDW 1.0 |
+</ParamField>
+
+<ParamField path="context_length" type="int" default="8192">
+  Maximum context length (input window size). Defaults to 8,192, matching the `granite-tsfm` library default. Series longer than this are truncated to the most recent `context_length` observations before inference. The model supports flexible context lengths.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="2048">
+  Batch size for inference. Defaults to 2,048. The implementation automatically halves the batch size on CUDA out-of-memory errors and retries, so a high starting value is safe. Reduce this explicitly if you frequently hit OOM on smaller GPUs.
+</ParamField>
+
+<ParamField path="alias" type="str" default='"PatchTST-FM"'>
+  Name used for this model in output DataFrames and log messages.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True` (default), checkpoint weights are cached in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type="ExogStrategyConfig" default='"auto"'>
+  Controls how exogenous (covariate) variables are handled. PatchTST-FM has **no native exogenous support**. In mixed `FoundationForecast` runs that include models with native exog, set `exog_strategy=False` to explicitly disable covariate injection for this model.
+</ParamField>
+
+## Available checkpoints
+
+| Model ID | Generation | License | Notes |
+|---|---|---|---|
+| `ibm-research/patchtst-fm-r1` | r1 | CC-BY-NC-SA-4.0 | Default; non-commercial |
+| `ibm-granite/granite-timeseries-patchtst-fm-r1` | r1 | CC-BY-NC-SA-4.0 | Granite-branded r1; non-commercial |
+| `ibm-granite/granite-timeseries-patchtst-fm-r2` | r2 | Apache-2.0 / OpenMDW 1.0 | Commercial-friendly; requires `granite-tsfm>=0.3.9` |
+
+## Usage example
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import PatchTSTFM
+
+df = pd.read_csv("my_timeseries.csv", parse_dates=["ds"])
+
+# Non-commercial r1 checkpoint (default)
+model_r1 = PatchTSTFM(alias="PatchTST-FM-r1")
+
+# Commercial-friendly r2 checkpoint (requires granite-tsfm>=0.3.9)
+model_r2 = PatchTSTFM(
+    repo_id="ibm-granite/granite-timeseries-patchtst-fm-r2",
+    alias="PatchTST-FM-r2",
+)
+
+ff = FoundationForecast(models=[model_r2])
+fcst_df = ff.forecast(df, h=24, level=[80, 90])
+```
+
+<Tip>
+  PatchTST-FM supports quantiles from 0.01 to 0.99. Requested quantiles outside this range are clipped to the model's supported bounds. The median (0.5) is always the point forecast column.
+</Tip>
+
+## Notes
+
+- **Python compatibility:** 3.11–3.13.
+- **Device selection:** Automatically uses CUDA GPU, then CPU. MPS (Apple Silicon) support is available but may produce all-zero predictions in some configurations; CUDA is recommended.
+- **Exogenous variables:** No native exog support. Use `exog_strategy=False` in mixed `FoundationForecast` runs.
+- **Paper:** [Revisiting the Generic Transformer: Deconstructing a Strong Baseline for Time Series Foundation Models](https://arxiv.org/abs/2602.06909)
+- **GitHub:** [ibm-granite/granite-tsfm](https://github.com/ibm-granite/granite-tsfm)
+- **HuggingFace (r2):** [ibm-granite/granite-timeseries-patchtst-fm-r2](https://huggingface.co/ibm-granite/granite-timeseries-patchtst-fm-r2)

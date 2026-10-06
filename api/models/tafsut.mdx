@@ -1,0 +1,96 @@
+---
+title: "Tafsut Model API Reference"
+sidebarTitle: "Tafsut"
+description: "API reference for the Tafsut class. MIT-licensed foundation model for univariate time series forecasting with probabilistic output."
+---
+
+**Tafsut** is a zero-shot probabilistic univariate time series foundation model released under the **MIT license**. It uses a patch-based transformer encoder to produce nine fixed forecast quantiles (0.1 through 0.9) per step from up to 32,768 historical observations, making it one of the highest-context-window models available in FoundationForecast. Tafsut handles missing values natively via NaN in the input context and is strictly univariate — it does not use cross-series structure or external covariates.
+
+```python
+from foundationforecast.models import Tafsut
+```
+
+<Note>
+  Tafsut is released under the **MIT license**, making it freely usable for both commercial and non-commercial purposes. Python 3.10+ is required.
+</Note>
+
+## Constructor
+
+```python
+Tafsut(
+    repo_id="Tafsut-FM/tafsut-univariate-base",
+    context_length=32768,
+    batch_size=64,
+    alias="Tafsut",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default='"Tafsut-FM/tafsut-univariate-base"'>
+  The Hugging Face Hub model ID or local path to load the Tafsut model from. Defaults to `Tafsut-FM/tafsut-univariate-base`. See the [model card](https://huggingface.co/Tafsut-FM/tafsut-univariate-base) for details.
+</ParamField>
+
+<ParamField path="context_length" type="int" default="32768">
+  Maximum context length (input window size). Inputs longer than this are truncated to the most recent `context_length` observations. The 32,768 default matches the model's maximum supported history; reduce this value to lower memory usage or speed up inference on shorter series.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="64">
+  Batch size for inference. Defaults to 64. Adjust based on available GPU or CPU memory. With the default context length of 32,768 and `float32` tensors, each series occupies roughly 128 KB; keep this in mind when tuning batch size on GPU.
+</ParamField>
+
+<ParamField path="alias" type="str" default='"Tafsut"'>
+  Name used for this model in output DataFrames and log messages.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True` (default), checkpoint weights are cached in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type="ExogStrategyConfig" default='"auto"'>
+  Controls how exogenous (covariate) variables are handled. Tafsut is strictly univariate and has **no native exogenous support**. In mixed `FoundationForecast` runs that include models with native exog, set `exog_strategy=False` to explicitly disable covariate injection for this model.
+</ParamField>
+
+## Available checkpoints
+
+| Model ID | License |
+|---|---|
+| `Tafsut-FM/tafsut-univariate-base` | MIT |
+
+## Usage example
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Tafsut
+
+df = pd.read_csv("my_timeseries.csv", parse_dates=["ds"])
+
+# Default checkpoint
+model = Tafsut(alias="Tafsut")
+
+# Reduced context for faster inference on short series
+model_short = Tafsut(
+    context_length=512,
+    batch_size=128,
+    alias="Tafsut-short",
+)
+
+ff = FoundationForecast(models=[model])
+fcst_df = ff.forecast(df, h=24, level=[80, 90])
+```
+
+<Tip>
+  Tafsut outputs nine fixed quantiles (0.1, 0.2, …, 0.9). Requested quantiles outside this range are interpolated from the available knots. For tail-heavy distributions, consider combining Tafsut with a model offering finer-grained quantile coverage such as T0-beta (21 knots) or PatchTST-FM (0.01–0.99).
+</Tip>
+
+## Notes
+
+- **Python compatibility:** 3.10+.
+- **Univariate only:** No covariates or cross-series structure. Use `exog_strategy=False` in mixed `FoundationForecast` runs.
+- **Missing values:** NaN observations in the context are handled natively without imputation.
+- **Device selection:** Automatically uses CUDA GPU if available, otherwise CPU.
+- **GitHub:** [Tafsut-FM/tafsut](https://github.com/Tafsut-FM/tafsut)
+- **HuggingFace:** [Tafsut-FM/tafsut-univariate-base](https://huggingface.co/Tafsut-FM/tafsut-univariate-base)

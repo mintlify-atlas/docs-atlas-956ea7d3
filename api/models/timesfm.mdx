@@ -1,0 +1,145 @@
+---
+title: "TimesFM Model API Reference"
+sidebarTitle: "TimesFM"
+description: "API reference for the TimesFM class. Google's foundation model for time series. TimesFM-3.0 checkpoints support native exogenous variables."
+---
+
+TimesFM is Google's decoder-only foundation model for time series forecasting. It is trained on a large corpus of real-world time series and supports zero-shot probabilistic forecasting across arbitrary horizons and frequencies. The family has grown through four generations: the original 200M-parameter 1.0 release, the larger 500M 2.0 model, the improved 2.5 architecture, and TimesFM 3.0, which adds native support for known-future exogenous covariates. FoundationForecast automatically dispatches to the correct backend (`timesfm_v1`, `timesfm_v2.5`, or `timesfm_v3`) based on the version string in `repo_id`.
+
+<Warning>
+  Only **PyTorch** checkpoints are supported. JAX checkpoints are not. All supported `repo_id` values contain `"pytorch"` in their name. TimesFM-3.0 weights (`google/timesfm-3.0-pytorch`) are distributed under a **non-commercial license** restricted to research and non-production use. TimesFM 1.0–2.5 checkpoints remain Apache-2.0.
+</Warning>
+
+## Import
+
+```python
+from foundationforecast.models import TimesFM
+```
+
+---
+
+## `TimesFM`
+
+```python
+TimesFM(
+    repo_id="google/timesfm-2.0-500m-pytorch",
+    context_length=2048,
+    batch_size=64,
+    alias="TimesFM",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+    **kwargs,
+)
+```
+
+`TimesFM` is a factory class: calling `TimesFM(...)` returns an instance of the appropriate internal backend class (`_TimesFMV1`, `_TimesFMV2_p5`, or `_TimesFMV3`) determined by the version string in `repo_id`. All backends expose the same `forecast()` interface. The model is loaded onto a CUDA GPU when one is available, otherwise CPU.
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default="google/timesfm-2.0-500m-pytorch">
+  HuggingFace Hub model ID or local directory path. Must contain `"pytorch"` in the name (or be one of the legacy GIFT-Eval IDs `google/timesfm-1.0-200m` and `google/timesfm-2.0-500m-jax`). Supported values:
+
+  - `google/timesfm-1.0-200m-pytorch`
+  - `google/timesfm-2.0-500m-pytorch`
+  - `google/timesfm-2.5-200m-pytorch`
+  - `google/timesfm-3.0-pytorch`
+</ParamField>
+
+<ParamField path="context_length" type="int" default="2048">
+  Maximum context window (number of historical time steps) fed to the model. Defaults to `2048`. Version-specific limits apply:
+
+  - **TimesFM 1.0:** maximum `512` (longer inputs are clipped automatically).
+  - **TimesFM 2.0:** maximum `2048`; must be a multiple of `32`.
+  - **TimesFM 3.0:** maximum `15360`.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="64">
+  Batch size for inference. Defaults to `64`. Adjust based on available GPU memory and model size.
+</ParamField>
+
+<ParamField path="alias" type="str" default="TimesFM">
+  Name used for this model in output DataFrame columns and logs. Change this when running multiple models together.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True`, loaded checkpoint weights are kept in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type='"auto" | False' default='"auto"'>
+  Controls how exogenous variables in `X_df` are handled. Under `"auto"`, native exog is used only for `google/timesfm-3.0-pytorch`; all other checkpoints ignore `X_df`. Set to `False` to disable exog handling entirely in mixed `FoundationForecast` runs.
+</ParamField>
+
+<ParamField path="**kwargs" type="Any">
+  Extra keyword arguments forwarded to the backend model configuration. Used for TimesFM 2.5 and 3.0 models (e.g. `normalize_inputs`, `use_continuous_quantile_head`). Ignored for 1.0 and 2.0 backends.
+</ParamField>
+
+### Exogenous variable support
+
+<Note>
+  Native `X_df` support is **only available on `google/timesfm-3.0-pytorch`**. The 3.0 backend accepts known-future covariates by concatenating past and future covariate windows and passing them to the model's `predict_batch` call. All 1.0, 2.0, and 2.5 checkpoints ignore `X_df` under the default `exog_strategy="auto"`.
+</Note>
+
+### Available checkpoints
+
+| Model ID | Backend | Parameters | License |
+|---|---|---|---|
+| `google/timesfm-1.0-200m-pytorch` | `_TimesFMV1` | 200M | Apache-2.0 |
+| `google/timesfm-2.0-500m-pytorch` | `_TimesFMV1` | 500M | Apache-2.0 |
+| `google/timesfm-2.5-200m-pytorch` | `_TimesFMV2_p5` | 200M | Apache-2.0 |
+| `google/timesfm-3.0-pytorch` | `_TimesFMV3` | — | Non-commercial |
+
+### Requirements
+
+- Python **3.10+**
+- Only PyTorch backends are supported. JAX is not supported.
+
+### Basic usage
+
+```python
+import pandas as pd
+from foundationforecast.models import TimesFM
+
+model = TimesFM(
+    repo_id="google/timesfm-2.0-500m-pytorch",
+    context_length=512,
+    batch_size=32,
+)
+
+df = pd.read_csv("timeseries.csv", parse_dates=["ds"])
+fcst_df = model.forecast(df=df, h=24, level=[80, 95])
+print(fcst_df)
+```
+
+Using TimesFM 3.0 with exogenous variables:
+
+```python
+import pandas as pd
+from foundationforecast import FoundationForecast
+from foundationforecast.models import TimesFM
+
+ff = FoundationForecast(
+    models=[
+        TimesFM(
+            repo_id="google/timesfm-3.0-pytorch",
+            context_length=2048,
+            alias="TimesFM-3",
+        )
+    ]
+)
+
+fcst_df = ff.forecast(df=df, h=24, X_df=X_df, level=[90])
+```
+
+<Tip>
+  For production workloads, prefer `google/timesfm-2.0-500m-pytorch` or `google/timesfm-2.5-200m-pytorch`, which carry the Apache-2.0 license. Reserve `google/timesfm-3.0-pytorch` for research and non-commercial prototyping.
+</Tip>
+
+---
+
+## License & references
+
+TimesFM 1.0–2.5 checkpoint weights are released under **Apache-2.0**. TimesFM 3.0 weights are released under a **non-commercial license** (see [the HuggingFace model card](https://huggingface.co/google/timesfm-3.0-pytorch/blob/main/LICENSE) for the full terms). FoundationForecast itself is Apache-2.0.
+
+- **Paper:** [A decoder-only foundation model for time-series forecasting](https://arxiv.org/abs/2310.10688)
+- **GitHub:** [google-research/timesfm](https://github.com/google-research/timesfm)
+- **HuggingFace collection:** [google/timesfm-release](https://huggingface.co/collections/google/timesfm-release-66e4be5fdb56e960c1e482a6)

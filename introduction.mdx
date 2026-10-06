@@ -1,0 +1,105 @@
+---
+title: "FoundationForecast: Unified API for Time Series Foundation Models"
+sidebarTitle: "Introduction"
+description: "FoundationForecast is a Python library that unifies 12+ pretrained time series foundation models behind a single forecast, cross_validation, and detect_anomalies API."
+---
+
+FoundationForecast is a focused Python library for running state-of-the-art pretrained time series foundation models through a single, consistent interface. Forecasting has entered its foundation era — but every lab ships its own API, dependencies, data conventions, and learning curve. FoundationForecast removes that friction: one `FoundationForecast` class, one data format, and the same three methods across all supported models.
+
+## The Problem It Solves
+
+Different foundation models bring different inductive biases and perform differently across domains, datasets, and horizons. There is no single model that dominates everywhere, as benchmarks like [GIFT-Eval](https://huggingface.co/spaces/Salesforce/GIFT-Eval) and [FEV](https://arxiv.org/abs/2509.26468) have shown. In practice, teams need to run several models to find what works best for their data — but doing so across different libraries, input formats, and device configurations is tedious and error-prone.
+
+FoundationForecast gives you a level playing field: load any supported model, point it at a standard DataFrame, and get results back in the same shape every time.
+
+## The Three Core Methods
+
+Every model in FoundationForecast exposes exactly three methods through the `FoundationForecast` class:
+
+- **`forecast(df, h, level, X_df, freq)`** — generate point forecasts and prediction intervals `h` steps ahead for every series in `df`. Pass `level=[90]` (or any list of coverage values) to receive lower and upper bound columns. Pass `X_df` to supply known-future exogenous features on supported checkpoints.
+- **`cross_validation(df, h, level, n_windows, freq)`** — roll a sliding window over historical data and evaluate each model on held-out test windows, returning out-of-sample predictions aligned to the original timestamps for easy metric computation.
+- **`detect_anomalies(df, level, freq)`** — fit a cross-validated model on each series and flag timesteps whose residuals fall outside the prediction interval at the given `level`. Returns a boolean `anomaly` column alongside the original values.
+
+## Unified DataFrame Format
+
+All three methods share the same input contract. Your DataFrame must contain exactly three columns:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `unique_id` | string | Series identifier — one value per distinct time series |
+| `ds` | datetime | Timestamp for each observation (ISO-8601 strings are also accepted) |
+| `y` | float | The observed target value |
+
+If you omit `freq`, FoundationForecast infers it from the regular spacing of `ds`. Pass `freq=` explicitly when timestamps are irregular or when running cross-validation and anomaly detection on data that may have gaps.
+
+## Relationship to TimeCopilot
+
+FoundationForecast is the foundation-models-only library extracted from [TimeCopilot](https://github.com/TimeCopilot/timecopilot). It has no statistical, ML, or agent dependencies — just the foundation model wrappers and the unified API.
+
+| | **FoundationForecast** | **TimeCopilot** |
+|---|:---:|:---:|
+| Foundation models (Chronos, Moirai, …) | ✓ | ✓ |
+| Unified forecast / CV / anomaly API | ✓ | ✓ |
+| Statistical & ML baselines | | ✓ |
+| LLM agent & natural-language queries | | ✓ |
+| Ensembles & distributed inference | | ✓ |
+
+Use **FoundationForecast** when you only need foundation models. Use **[TimeCopilot](https://github.com/TimeCopilot/timecopilot)** for the full forecasting agent, classical baselines, and ensemble infrastructure.
+
+## Supported Models
+
+All 12 models support forecast, cross-validation, and anomaly detection through the same API. **Intervals** means prediction intervals are available via the `level` parameter. **Exogenous** marks native known-future covariate support (`X_df` on `forecast()`). **Finetuning** marks models that can adapt to your data at inference time.
+
+<Note>
+  ¶ Exogenous variables are only available on specific checkpoints: **Chronos** with `amazon/chronos-2`; **TimesFM** with `google/timesfm-3.0-pytorch`; **TiRex** with `NX-AI/TiRex-2` (and other `TiRex-2-*` variants). Set `exog_strategy=False` to silently ignore `X_df` on models or checkpoints that do not support it.
+</Note>
+
+| Provider | Model | Forecast | CV | Anomalies | Intervals | Exogenous | Finetuning | License |
+|----------|-------|:--------:|:--:|:---------:|:---------:|:---------:|:----------:|---------|
+| Amazon | Chronos | ✓ | ✓ | ✓ | ✓ | ✓¶ | ✓ | Apache-2.0 |
+| IBM | FlowState | ✓ | ✓ | ✓ | ✓ | | | Apache-2.0 |
+| Salesforce | Moirai | ✓ | ✓ | ✓ | ✓ | | | CC-BY-NC-4.0 |
+| IBM | PatchTST-FM | ✓ | ✓ | ✓ | ✓ | | | CC-BY-NC-SA-4.0 |
+| THUML | Sundial | ✓ | ✓ | ✓ | ✓ | | | Apache-2.0 |
+| The Forecasting Company | T0 | ✓ | ✓ | ✓ | ✓ | ✓ | | Apache-2.0 |
+| Prior Labs | TabPFN | ✓ | ✓ | ✓ | ✓ | | | TabPFN NC |
+| Tafsut | Tafsut | ✓ | ✓ | ✓ | ✓ | | | MIT |
+| NX-AI | TiRex | ✓ | ✓ | ✓ | ✓ | ✓¶ | | Community / Apache-2.0 |
+| Nixtla | TimeGPT | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | Nixtla API |
+| Google | TimesFM | ✓ | ✓ | ✓ | ✓ | ✓¶ | | Apache-2.0 |
+| Datadog | Toto | ✓ | ✓ | ✓ | ✓ | | | Apache-2.0 |
+
+<Warning>
+  Several model weights carry non-commercial or restricted licenses regardless of the Apache-2.0 library license. **Moirai** (CC-BY-NC-4.0) and **PatchTST-FM r1** (CC-BY-NC-SA-4.0) are non-commercial only. **TimesFM 3.0** weights are non-commercial; earlier TimesFM checkpoints are Apache-2.0. **TabPFN** weights (v2.6+) are non-commercial without a Prior Labs commercial license. **TiRex 1.0** uses the NXAI Community License with commercial limits for large enterprises; TiRex 2.0 is Apache-2.0. **TimeGPT** is a hosted API governed by Nixtla's terms and pricing. Always check the model card for your specific `repo_id`.
+</Warning>
+
+## Key Highlights
+
+**📈 Exogenous variables.** Pass known-future covariates — holidays, prices, weather — via `X_df` on `forecast()` or as extra columns in `df` for `cross_validation()`. Native support is available on Chronos-2, TimesFM-3.0, TimeGPT, T0, and TiRex-2.
+
+**🚀 GPU-native.** FoundationForecast automatically runs on GPU when one is available, without any model-specific device configuration. No per-model `.to("cuda")` calls required.
+
+**🎯 Benchmark replication in CI.** Wrappers are regression-tested against official leaderboard submissions. The [`experiments/gift-eval`](https://github.com/TimeCopilot/foundationforecast/tree/main/experiments/gift-eval) directory replicates GIFT-Eval MASE/CRPS scores, and [`experiments/fev-bench`](https://github.com/TimeCopilot/foundationforecast/tree/main/experiments/fev-bench) replicates fev-bench `test_error` on known-dynamic tasks. CI re-runs these checks on every change.
+
+## License
+
+**FoundationForecast** is licensed under [Apache-2.0](https://github.com/TimeCopilot/foundationforecast/blob/main/LICENSE). You may use, modify, and deploy the library in production, including commercial applications. Model weights and hosted APIs have separate licenses — see the table above and always check the model card for the specific checkpoint you are using.
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Run your first multi-model forecast with Chronos and Toto in under five minutes.
+  </Card>
+  <Card
+    title="Model Hub"
+    icon="database"
+    href="/models/model-hub"
+  >
+    Browse all 12 supported models, their checkpoints, and Python version requirements.
+  </Card>
+</CardGroup>

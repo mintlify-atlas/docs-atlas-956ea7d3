@@ -1,0 +1,125 @@
+---
+title: "Manage Model Weight Caching and GPU Memory"
+sidebarTitle: "Weight Cache"
+description: "Configure the process-wide LRU model weight cache, set per-model reuse behavior, and control GPU memory in multi-model ensembles."
+---
+
+Foundation models load large checkpoint files into GPU or CPU memory. By default, FoundationForecast **reuses loaded weights** across repeated `forecast()` calls instead of loading and unloading on every request. This is especially useful in long-lived workers — for example Modal GPU containers — where the same model serves many requests. When the cache reaches its limit, the least-recently-used model is automatically evicted and its memory is released.
+
+## Defaults
+
+The table below shows the two settings that control caching behavior and their out-of-the-box values.
+
+| Setting | Default | Scope |
+|---|---|---|
+| `reuse_loaded_model` | `True` | Per forecaster instance |
+| `max_cached_models` | `1` | Process-wide LRU cache |
+
+## Per-Model Opt-Out
+
+Every forecaster accepts a `reuse_loaded_model` boolean at construction time. Set it to `False` when you need strict memory isolation between calls — for example during memory debugging or in test suites.
+
+```python
+from foundationforecast.models import Chronos, TimesFM
+
+chronos = Chronos(repo_id="amazon/chronos-bolt-mini", reuse_loaded_model=True)
+timesfm = TimesFM(reuse_loaded_model=False)  # load fresh weights every forecast()
+```
+
+## Process-Wide Cache Size
+
+Use `set_max_cached_models()` to configure how many loaded models the process keeps in memory at once. Call it once at worker startup, before the first `forecast()`.
+
+```python
+from foundationforecast import set_max_cached_models
+
+set_max_cached_models(1)   # default; best for single-GPU workers
+set_max_cached_models(0)   # disable caching entirely (always load + release)
+set_max_cached_models(2)   # keep two models warm; useful when rotating models
+```
+
+<Tip>
+  `set_max_cached_models(0)` completely disables the LRU cache. Every
+  `forecast()` call will load weights from disk and release them when done,
+  which maximises memory headroom at the cost of repeated load latency.
+</Tip>
+
+Calling `set_max_cached_models()` on an already-running process is safe. The existing cache is preserved up to the new limit; any excess entries are evicted in LRU order.
+
+## Manual Cache Release
+
+Each forecaster exposes a `clear_model_cache()` method that immediately drops its cached weights and frees GPU/CPU memory.
+
+```python
+from foundationforecast.models import Chronos
+
+model = Chronos(repo_id="amazon/chronos-bolt-mini")
+# ... run model.forecast(df, h=12, freq="D") ...
+model.clear_model_cache()
+```
+
+After `clear_model_cache()`, the next `forecast()` call reloads weights from disk as normal.
+
+## Multi-Model Ensembles
+
+When running several large models in a single `FoundationForecast` pass, peak GPU memory can exceed what a single device holds. Pass `clean_cache=True` to `FoundationForecast` to automatically call `clear_model_cache()` on each model immediately after it finishes, so only one model's weights reside in memory at a time.
+
+```python
+from foundationforecast import FoundationForecast
+from foundationforecast.models import Chronos, TimesFM
+
+FoundationForecast(
+    models=[
+        Chronos(alias="Chronos"),
+        TimesFM(alias="TimesFM"),
+    ],
+    clean_cache=True,
+)
+```
+
+<Note>
+  `clean_cache=True` trades throughput for memory: models are unloaded after
+  each run rather than staying warm, so repeated calls to the same ensemble
+  will reload weights every time. Use `clean_cache=False` (the default) when
+  you have enough GPU memory to keep all models loaded simultaneously.
+</Note>
+
+## Which Models Use the Cache?
+
+All forecasters that load local weights go through the shared LRU cache. This includes:
+
+- HuggingFace checkpoint models (Chronos, FlowState, Moirai, PatchTST-FM, Sundial, T0, Tafsut, TiRex, TimesFM, Toto)
+- GluonTS-backed modules
+- TabPFN in LOCAL mode
+
+**Remote API models** such as TimeGPT accept the `reuse_loaded_model` parameter for API consistency, but they do not load or cache local weights.
+
+<Warning>
+  **Chronos finetuning:** when `finetuning_config` is set on a `Chronos`
+  instance, model weights are **not cached** because the model is mutated in
+  place during `forecast()`. Each call will load a fresh copy of the weights.
+</Warning>
+
+## How the LRU Cache Works
+
+The process-wide cache is a thread-safe `OrderedDict`-backed LRU store implemented in `foundationforecast.core.model_weight_cache`. Each loaded model is keyed by a string derived from its class and `repo_id`. On cache hit the entry is moved to the most-recently-used position; on cache miss the loader runs, and if the cache is already at capacity the least-recently-used model is evicted first.
+
+When a model is evicted — either by LRU pressure or by an explicit `clear_model_cache()` call — `torch.cuda.empty_cache()` (or `torch.mps.empty_cache()` on Apple Silicon) is called automatically to return device memory to the allocator.
+
+```python
+from foundationforecast import set_max_cached_models
+from foundationforecast.models import Chronos, TimesFM, TiRex
+
+# Keep three models warm across requests in a multi-model serving setup
+set_max_cached_models(3)
+
+chronos = Chronos(repo_id="amazon/chronos-bolt-base")
+timesfm = TimesFM(repo_id="google/timesfm-2.0-500m-pytorch")
+tirex   = TiRex(repo_id="NX-AI/TiRex-2")
+
+# All three are loaded once and reused on subsequent calls
+for df_batch in incoming_requests:
+    chronos.forecast(df_batch, h=24, freq="H")
+    timesfm.forecast(df_batch, h=24, freq="H")
+    tirex.forecast(df_batch, h=24, freq="H")
+```

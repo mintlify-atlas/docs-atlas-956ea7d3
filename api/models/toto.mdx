@@ -1,0 +1,154 @@
+---
+title: "Toto Model API Reference"
+sidebarTitle: "Toto"
+description: "API reference for the Toto class. Datadog's open foundation model for time series forecasting, available in sizes from 4M to 2.5B parameters."
+---
+
+Toto is Datadog's open foundation model family for multivariate time series forecasting, developed with observability workloads in mind but broadly applicable across domains. The family spans two generations: **Toto 1.0**, a sample-based probabilistic model (151M parameters), and **Toto 2.0**, a quantile-knot-based architecture available in five sizes from 4M to 2.5B parameters. FoundationForecast automatically detects which generation a given checkpoint belongs to by inspecting its `config.json` and routes inference to the correct backend—you do not need to choose between them manually.
+
+## Import
+
+```python
+from foundationforecast.models import Toto
+```
+
+---
+
+## `Toto`
+
+```python
+Toto(
+    repo_id="Datadog/Toto-Open-Base-1.0",
+    context_length=4096,
+    batch_size=16,
+    num_samples=128,
+    samples_per_batch=8,
+    decode_block_size=None,
+    alias="Toto",
+    reuse_loaded_model=True,
+    exog_strategy="auto",
+)
+```
+
+The `Toto` class transparently supports both Toto 1.0 and Toto 2.0 checkpoints. Generation detection is performed by downloading and parsing `config.json` from the checkpoint; the result is cached on the instance. The model is loaded onto a CUDA GPU when one is available, otherwise CPU.
+
+<Note>
+  Several parameters are generation-specific. `num_samples` and `samples_per_batch` apply only to **Toto 1.0** checkpoints. `decode_block_size` applies only to **Toto 2.0** checkpoints. In both cases the unused parameter is silently ignored by the active backend.
+</Note>
+
+### Parameters
+
+<ParamField path="repo_id" type="str" default="Datadog/Toto-Open-Base-1.0">
+  HuggingFace Hub model ID or local path to load the Toto model from. Accepts both Toto 1.0 checkpoints (e.g. `"Datadog/Toto-Open-Base-1.0"`) and Toto 2.0 checkpoints (e.g. `"Datadog/Toto-2.0-313m"`). The model generation is detected automatically.
+
+  See [Available checkpoints](#available-checkpoints) below.
+</ParamField>
+
+<ParamField path="context_length" type="int" default="4096">
+  Maximum context window size (number of historical time steps) fed to the model. Defaults to `4096`. Should match the configuration of the pretrained checkpoint. Reduce this to lower memory usage on shorter series.
+</ParamField>
+
+<ParamField path="batch_size" type="int" default="16">
+  Batch size for inference. Defaults to `16`. Adjust based on available GPU memory and model size.
+</ParamField>
+
+<ParamField path="num_samples" type="int" default="128">
+  Number of probabilistic forecast samples drawn per inference call. Higher values produce smoother quantile estimates at the cost of increased inference time. Defaults to `128`. **Only used by Toto 1.0 checkpoints**; ignored by Toto 2.0.
+</ParamField>
+
+<ParamField path="samples_per_batch" type="int" default="8">
+  Number of samples processed per mini-batch during inference. Controls the trade-off between memory consumption and speed. Defaults to `8`. **Only used by Toto 1.0 checkpoints**; ignored by Toto 2.0.
+</ParamField>
+
+<ParamField path="decode_block_size" type="int | None" default="None">
+  Block size (in time steps, must be divisible by the model's patch size) for block decoding in Toto 2.0. When `None`, Toto 2.0 generates the full horizon in a single forward pass, which is faster and works well for short horizons. Setting a larger value (e.g. `768`) can improve long-horizon stability. **Only used by Toto 2.0 checkpoints**; ignored by Toto 1.0.
+</ParamField>
+
+<ParamField path="alias" type="str" default="Toto">
+  Name used for this model in output DataFrame columns and logs. Change this when running multiple models together.
+</ParamField>
+
+<ParamField path="reuse_loaded_model" type="bool" default="True">
+  When `True`, loaded checkpoint weights are kept in a process-wide LRU cache and reused across repeated `forecast()` calls. Set to `False` to load and release weights on every call.
+</ParamField>
+
+<ParamField path="exog_strategy" type='"auto" | False' default='"auto"'>
+  Controls how exogenous variables are handled. Toto does not have native `X_df` support. In mixed `FoundationForecast` runs where other models consume `X_df`, set `exog_strategy=False` to ensure Toto silently ignores the horizon exog.
+</ParamField>
+
+### Exogenous variable support
+
+<Note>
+  Toto does not support native `X_df` exogenous variables. When running alongside exog-capable models (e.g. Chronos-2, TimeGPT), set `exog_strategy=False` on the `Toto` instance to suppress exog-related warnings.
+</Note>
+
+### Available checkpoints
+
+**Toto 1.0 (sample-based probabilistic inference):**
+
+| Model ID | Parameters |
+|---|---|
+| `Datadog/Toto-Open-Base-1.0` | 151M |
+
+**Toto 2.0 (quantile-knot based, fixed knots 0.1–0.9):**
+
+| Model ID | Parameters |
+|---|---|
+| `Datadog/Toto-2.0-4m` | 4M |
+| `Datadog/Toto-2.0-22m` | 22M |
+| `Datadog/Toto-2.0-313m` | 313M |
+| `Datadog/Toto-2.0-1B` | 1B |
+| `Datadog/Toto-2.0-2.5B` | 2.5B |
+
+<Tip>
+  Toto 2.0 models predict a fixed set of quantile knots (0.1, 0.2, …, 0.9). When you request intervals or quantiles outside that set, FoundationForecast uses linear interpolation across the knots. The median knot (0.5) is used as the point forecast.
+</Tip>
+
+### Requirements
+
+- Python **3.10+**
+- Apache-2.0 license for all listed checkpoints
+
+### Basic usage
+
+```python
+import pandas as pd
+from foundationforecast.models import Toto
+
+# Toto 1.0
+model = Toto(
+    repo_id="Datadog/Toto-Open-Base-1.0",
+    context_length=512,
+    num_samples=64,
+)
+
+df = pd.read_csv("timeseries.csv", parse_dates=["ds"])
+fcst_df = model.forecast(df=df, h=24, level=[80, 95])
+print(fcst_df)
+```
+
+Using a Toto 2.0 checkpoint:
+
+```python
+from foundationforecast.models import Toto
+
+model = Toto(
+    repo_id="Datadog/Toto-2.0-313m",
+    context_length=2048,
+    batch_size=32,
+    # decode_block_size=768,  # Uncomment for very long horizons
+)
+
+fcst_df = model.forecast(df=df, h=96, quantiles=[0.1, 0.5, 0.9])
+```
+
+---
+
+## License & references
+
+All listed Toto checkpoints are released under **Apache-2.0**. FoundationForecast itself is also Apache-2.0.
+
+- **Paper (Toto 1.0):** [Building a Foundation Model for Time Series](https://arxiv.org/abs/2505.14766)
+- **Paper (Toto 2.0):** [Toto 2.0: Time Series Forecasting Enters the Scaling Era](https://arxiv.org/abs/2605.20119)
+- **GitHub:** [DataDog/toto](https://github.com/DataDog/toto)
+- **HuggingFace:** [Datadog models](https://huggingface.co/Datadog)
